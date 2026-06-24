@@ -1,5 +1,6 @@
 import Foundation
 import PortalSwift
+@_spi(RainAdapters) import RainSDK
 
 extension PortalProviderResult {
   /// Extracts a hex string from this Portal RPC result.

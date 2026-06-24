@@ -2,7 +2,8 @@ import Testing
 import Foundation
 import PortalSwift
 import Web3
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Manager-contract tests for withdrawCollateral / estimateWithdrawalFee: validation, mode
 /// guards, error wrapping, input parsing. Provider-specific flows live in `Adapters/`.
@@ -73,7 +74,13 @@ struct WithdrawCollateralTests {
     mockPortal.setMockAddress(TestFixtures.walletAddress, forNamespace: PortalNamespace.eip155)
     // Real builder to exercise the invalidConfig branch when fetching nonce
     let realBuilder = TransactionBuilderService(networkConfigs: TestFixtures.configs())
-    let manager = RainSDKManager(portal: mockPortal, transactionBuilder: realBuilder)
+    let store = TokenMetadataStore(networkConfigs: TestFixtures.configs())
+    let provider = PortalProvider(portal: mockPortal, tokenStore: store)
+    let manager = RainSDKManager(
+      walletProvider: provider,
+      transactionBuilder: realBuilder,
+      networkConfigs: TestFixtures.configs()
+    )
 
     await #expect(throws: RainSDKError.invalidConfig(chainId: 999, rpcUrl: "")) {
       _ = try await manager.withdrawCollateral(

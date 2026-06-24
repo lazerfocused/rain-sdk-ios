@@ -1,5 +1,4 @@
 import Foundation
-import PortalSwift
 @testable import RainSDK
 
 // MARK: - Shared test fixtures
@@ -46,22 +45,6 @@ enum TestFixtures {
 // MARK: - Manager factories
 
 enum TestManagers {
-  /// Returns a manager backed by a Portal mock and a mock transaction builder.
-  static func portalManager(
-    portal: MockPortal? = nil,
-    builder: MockTransactionBuilderService? = nil,
-    configs: [NetworkConfig] = TestFixtures.configs()
-  ) -> (RainSDKManager, MockPortal, MockTransactionBuilderService) {
-    let resolvedPortal = portal ?? {
-      let p = MockPortal()
-      p.setMockAddress(TestFixtures.walletAddress, forNamespace: PortalNamespace.eip155)
-      return p
-    }()
-    let resolvedBuilder = builder ?? MockTransactionBuilderService(networkConfigs: configs)
-    let manager = RainSDKManager(portal: resolvedPortal, transactionBuilder: resolvedBuilder)
-    return (manager, resolvedPortal, resolvedBuilder)
-  }
-
   /// Returns a manager backed by a Turnkey mock context and a mock transaction builder.
   static func turnkeyManager(
     turnkey: MockTurnkey? = nil,

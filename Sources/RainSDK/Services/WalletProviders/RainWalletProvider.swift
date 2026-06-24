@@ -1,8 +1,15 @@
 import Foundation
 
 /// Abstraction for a wallet/signer used for address, balance, transfers, and signing.
-/// Implementations: Portal (via `PortalWalletProviderAdapter`), Web3Auth, or other providers.
+/// Implementations: Turnkey (core), Portal (`RainPortal`), Privy (`RainPrivy`), or other providers.
 public protocol RainWalletProvider: Sendable {
+  /// Stable identifier used to resolve this provider from the registry (`provider(_:)`).
+  var id: ProviderID { get }
+
+  /// The capabilities this provider supports. Mirrors the optional capability protocols the
+  /// provider conforms to; used by `providers(matching:)` and for graceful degradation.
+  var capabilities: Set<Capability> { get }
+
   /// Returns the wallet address for the given chain.
   func address(
   ) async throws -> String

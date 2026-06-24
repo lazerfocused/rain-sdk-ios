@@ -1,6 +1,6 @@
 import Foundation
 @testable import PortalSwift
-@testable import RainSDK
+@testable import RainPortal
 
 // MARK: - Mock Portal
 

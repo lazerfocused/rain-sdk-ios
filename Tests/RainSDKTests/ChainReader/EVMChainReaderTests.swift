@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import RainSDK
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Tests for the EVM chain-read layer.
 /// Stubs `URLSession.shared` via `MockURLProtocol` — must run serialized.

@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import RainSDK
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Locks in Multicall3 ABI encoding/decoding against known-good fixtures.
 @Suite("Multicall3 Tests")

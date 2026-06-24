@@ -1,7 +1,7 @@
 import Foundation
 
 /// Chain ID format types (e.g. EIP-155: "eip155:1", Solana CAIP-2: "solana:<genesis>").
-internal enum ChainIDFormat: Equatable {
+@_spi(RainAdapters) public enum ChainIDFormat: Equatable {
   case EIP155
   case solana
 
@@ -24,7 +24,7 @@ internal enum ChainIDFormat: Equatable {
   /// Format a chain ID as a string in this format
   /// - Parameter chainId: The chain ID as an integer (an EVM chain ID, or a Solana sentinel)
   /// - Returns: Formatted string (e.g., "eip155:1" or "solana:<genesis>")
-  func format(chainId: Int) -> String {
+  @_spi(RainAdapters) public func format(chainId: Int) -> String {
     switch self {
     case .EIP155:
       return "\(prefix):\(chainId)"

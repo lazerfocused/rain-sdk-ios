@@ -1,7 +1,8 @@
 import Testing
 import Foundation
 import PortalSwift
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 @Suite("Manager Public API Tests")
 struct ManagerAPITests {

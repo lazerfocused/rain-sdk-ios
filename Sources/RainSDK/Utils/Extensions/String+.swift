@@ -21,7 +21,7 @@ extension String {
     return isValid
   }
   
-  var asDouble: Double? {
+  @_spi(RainAdapters) public var asDouble: Double? {
     Double(self)
   }
 

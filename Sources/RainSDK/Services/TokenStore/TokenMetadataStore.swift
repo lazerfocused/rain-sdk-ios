@@ -9,7 +9,7 @@ import Foundation
 ///
 /// An `actor` because enrichment fans out async RPC across task groups; actor isolation
 /// gives reentrant-safe access to the registry and cache without manual locking.
-actor TokenMetadataStore {
+@_spi(RainAdapters) public actor TokenMetadataStore {
   private let chainReader: ChainReader
 
   /// Known tokens per chain: built-in registry plus host-registered. Insertion order is
@@ -18,6 +18,12 @@ actor TokenMetadataStore {
 
   /// Tokens discovered and enriched at runtime, keyed by chain ID then lowercased address.
   private var enrichmentCache: [Int: [String: TokenInfo]] = [:]
+
+  /// Builds a store from network configs, constructing the EVM chain reader internally.
+  /// SPI: for out-of-package adapters (`RainPortal`, `RainPrivy`).
+  @_spi(RainAdapters) public init(networkConfigs: [NetworkConfig], seedTokens: [TokenInfo] = []) {
+    self.init(chainReader: EVMChainReader(networkConfigs: networkConfigs), seedTokens: seedTokens)
+  }
 
   init(chainReader: ChainReader, seedTokens: [TokenInfo] = []) {
     self.chainReader = chainReader
@@ -29,14 +35,14 @@ actor TokenMetadataStore {
 
   /// Adds host-supplied tokens. A token replaces any existing entry with the same
   /// address (case-insensitive) on the same chain.
-  func register(_ tokens: [TokenInfo]) {
+  @_spi(RainAdapters) public func register(_ tokens: [TokenInfo]) {
     for token in tokens {
       Self.upsert(token, into: &knownTokens)
     }
   }
 
   /// Native currency for a chain (gas token metadata).
-  func nativeCurrency(for chainId: Int) -> NativeCurrency {
+  @_spi(RainAdapters) public func nativeCurrency(for chainId: Int) -> NativeCurrency {
     TokenRegistry.nativeCurrency(for: chainId)
   }
 
@@ -47,7 +53,7 @@ actor TokenMetadataStore {
 
   /// Resolves metadata for a contract token: known tokens first, then the enrichment
   /// cache, then a one-time on-chain `decimals()` / `symbol()` read (cached on success).
-  func tokenInfo(chainId: Int, address: String) async -> TokenInfo {
+  @_spi(RainAdapters) public func tokenInfo(chainId: Int, address: String) async -> TokenInfo {
     let key = address.lowercased()
     if let known = knownTokens[chainId]?.first(where: { $0.address.lowercased() == key }) {
       return known

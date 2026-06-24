@@ -6,6 +6,9 @@ import Web3
 /// records calls — use when a test only needs to prove the manager routes to the
 /// provider and returns the provider's result, without invoking Portal- or Turnkey-specific behavior.
 final class StubWalletProvider: RainWalletProvider, @unchecked Sendable {
+  var id: ProviderID = .turnkey
+  var capabilities: Set<Capability> = []
+
   var addressToReturn: String = TestFixtures.walletAddress
   var balanceToReturn: Balance?
   var balancesToReturn: [Balance] = []

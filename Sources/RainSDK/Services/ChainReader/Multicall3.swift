@@ -5,7 +5,7 @@ import Foundation
 /// ERC-20 `balanceOf` (encoded against a token contract, not Multicall3 itself).
 ///
 /// Pure functions — no I/O — so unit tests can lock in calldata against fixtures.
-internal enum Multicall3 {
+@_spi(RainAdapters) public enum Multicall3 {
   /// Canonical Multicall3 deployment address (https://www.multicall3.com), deployed
   /// at the same address on most major EVM chains. The list of chains where this
   /// address is known-deployed lives in `Multicall3+Deployments.swift`.
@@ -126,7 +126,7 @@ internal enum Multicall3 {
   }
 
   /// Encodes calldata for ERC-20 `balanceOf(address)`.
-  static func encodeBalanceOf(address: String) -> String {
+  @_spi(RainAdapters) public static func encodeBalanceOf(address: String) -> String {
     "0x" + ERC20Selectors.balanceOf + hex32Address(address)
   }
 

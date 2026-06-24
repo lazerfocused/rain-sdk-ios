@@ -1,9 +1,8 @@
 import Testing
 import Foundation
-import PortalSwift
 import TurnkeyHttp
 import TurnkeySwift
-@testable import RainSDK
+@_spi(RainAdapters) @testable import RainSDK
 
 @Suite("RainSDKError Mapping Tests")
 struct ErrorMappingTests {
@@ -31,26 +30,6 @@ struct ErrorMappingTests {
   func testUnknownErrorMapsToProviderError() {
     let underlying = NSError(domain: "SomeRandomDomain", code: 123, userInfo: nil)
     let mapped = RainSDKError.from(underlying: underlying)
-
-    if case .providerError = mapped {
-      // OK
-    } else {
-      Issue.record("Expected .providerError, got \(mapped)")
-    }
-  }
-
-  @Test("from(_:) maps PortalRequestsError.unauthorized to tokenExpired")
-  func testPortalUnauthorizedMapsToTokenExpired() {
-    let mapped = RainSDKError.from(underlying: PortalRequestsError.unauthorized)
-    #expect(mapped == RainSDKError.tokenExpired)
-  }
-
-  @Test("from(_:) maps PortalRequestsError.clientError to providerError")
-  func testPortalClientErrorMapsToProviderError() {
-    // Portal routes 401 to .unauthorized upstream, so .clientError only carries
-    // other 4xx responses — all of which surface as providerError.
-    let error = PortalRequestsError.clientError("403 - Forbidden", url: "https://example.com")
-    let mapped = RainSDKError.from(underlying: error)
 
     if case .providerError = mapped {
       // OK

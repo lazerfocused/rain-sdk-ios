@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import RainSDK
+@_spi(RainAdapters) @testable import RainSDK
 
 @Suite("SolanaChains & ChainIDFormat")
 struct SolanaChainsTests {

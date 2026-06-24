@@ -1,6 +1,10 @@
 import Foundation
 
-internal protocol RainTypedDataSignerProvider: Sendable {
+// Optional capability protocols. Public extension points: an out-of-package provider (e.g. a
+// public `PortalProvider`) must be able to declare conformance, so these are fully public (a
+// public type cannot conform to an SPI-only protocol). They mirror the `Capability` set.
+
+public protocol RainTypedDataSignerProvider: Sendable {
   func signTypedData(
     chainId: Int,
     walletAddress: String,
@@ -8,7 +12,7 @@ internal protocol RainTypedDataSignerProvider: Sendable {
   ) async throws -> String
 }
 
-internal protocol RainTransactionFeeEstimatingProvider: Sendable {
+public protocol RainTransactionFeeEstimatingProvider: Sendable {
   func estimateTransactionFee(
     chainId: Int,
     walletAddress: String,
@@ -22,7 +26,7 @@ internal protocol RainTransactionFeeEstimatingProvider: Sendable {
 /// SOL amounts are scaled at 1e9 lamports, SPL token amounts at the mint's `decimals` — both
 /// paths get a dedicated entry point rather than flowing through the EVM `WalletTransactionParams`
 /// (1e18-scaled hex `value`).
-internal protocol RainSolanaTransfersProvider: Sendable {
+public protocol RainSolanaTransfersProvider: Sendable {
   /// Signs and broadcasts a native SOL transfer.
   ///
   /// - Parameters:

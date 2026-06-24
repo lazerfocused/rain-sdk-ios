@@ -1,6 +1,6 @@
 import Foundation
 import RainSDK
-import PortalSwift
+import RainPortal
 
 /// ViewModel for the recover wallet popup. Portal-only. Wallet recovery is currently
 /// unavailable via the Rain dev API (the LF backup endpoint was removed), so `performRecover`

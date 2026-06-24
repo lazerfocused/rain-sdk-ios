@@ -2,9 +2,9 @@ import Foundation
 
 public enum Constants {
   /// ERC-20 token defaults
-  enum ERC20 {
+  @_spi(RainAdapters) public enum ERC20 {
     /// Default number of decimal places for ERC-20 tokens (e.g. USDC uses 6, most tokens use 18)
-    static let defaultDecimals = 18
+    @_spi(RainAdapters) public static let defaultDecimals = 18
   }
 
   /// Contract ABI JSON names

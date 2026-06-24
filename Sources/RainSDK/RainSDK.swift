@@ -1,28 +1,12 @@
 import Foundation
 import CoreGraphics
-import PortalSwift
 import TurnkeySwift
 import Web3
 
 // Declaration of wallet provider instances and initialization methods
 public protocol RainSDK {
-  /// The initialized Portal instance
-  var portal: Portal { get throws }
-
   /// The initialized Turnkey context
   var turnkey: TurnkeyContext { get throws }
-  
-  /// Initializes the SDK with a Portal token and network configurations
-  /// - Parameters:
-  ///   - portalSessionToken: A valid Portal session token
-  ///   - networkConfigs: Array of network configurations, each containing chain ID and RPC URL
-  ///     Example: [NetworkConfig(chainId: 1, rpcUrl: "https://mainnet.infura.io/v3/..."),
-  ///               NetworkConfig(chainId: 137, rpcUrl: "https://polygon-rpc.com")]
-  /// - Throws: RainSDKError if initialization fails (e.g., invalid token, invalid RPC URLs)
-  func initializePortal(
-    portalSessionToken: String,
-    networkConfigs: [NetworkConfig]
-  ) async throws
 
   /// Initializes the SDK with an authenticated Turnkey context and network configurations.
   /// Use the official Turnkey Swift SDK for auth flows such as passkeys / auth proxy, then pass
@@ -56,6 +40,18 @@ public protocol RainSDK {
   /// Pass `nil` to clear. When using Portal or Turnkey, prefer `initializePortal` / `initializeTurnkey`
   /// which set the provider automatically.
   func setWalletProvider(_ provider: (any RainWalletProvider)?)
+
+  /// Registers a wallet provider and makes it active. Adapter packages (`RainPortal`,
+  /// `RainPrivy`) construct their provider and register it here. Designed for the
+  /// multi-provider case; a single-provider app simply registers exactly one.
+  func register(_ provider: any RainWalletProvider)
+
+  /// Resolves a registered provider by id.
+  /// - Throws: `RainSDKError` if no provider is registered for `id`.
+  func provider(_ id: ProviderID) throws -> any RainWalletProvider
+
+  /// Returns every registered provider that advertises `capability`.
+  func providers(matching capability: Capability) -> [any RainWalletProvider]
 
   /// Clears all SDK state. After this returns, the SDK is back to the same state as
   /// immediately after `init()` and must be re-initialized before further use.

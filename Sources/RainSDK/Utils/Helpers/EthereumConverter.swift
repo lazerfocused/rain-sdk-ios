@@ -2,14 +2,14 @@ import Foundation
 import Web3
 
 /// Utility functions for Ethereum data conversion.
-enum EthereumConverter {
+@_spi(RainAdapters) public enum EthereumConverter {
 
   // MARK: - Hex Normalization
 
   /// Returns the input if it looks like a non-empty `0x`-prefixed hex string;
   /// otherwise returns `"0x0"`. Used by RPC response handlers that want to keep
   /// downstream parsers from worrying about nil / malformed payloads.
-  static func normalizedHexString(_ hex: String?) -> String {
+  @_spi(RainAdapters) public static func normalizedHexString(_ hex: String?) -> String {
     guard let hex, hex.hasPrefix("0x"), hex.count > 2 else {
       return "0x0"
     }
@@ -60,7 +60,7 @@ enum EthereumConverter {
     return String(bytes: bytes, encoding: .utf8)
   }
 
-  static func parseHexToDouble(_ hex: String, decimals: Int) -> Double {
+  @_spi(RainAdapters) public static func parseHexToDouble(_ hex: String, decimals: Int) -> Double {
     let cleanHex = hex.strippingHexPrefix
     guard !cleanHex.isEmpty else { return 0 }
 
@@ -79,7 +79,7 @@ enum EthereumConverter {
   ///
   /// Used for balances read directly from chain (`eth_getBalance`, `eth_call balanceOf`),
   /// where the raw base-unit value must be preserved.
-  static func parseHexToBigUInt(_ hex: String) -> BigUInt {
+  @_spi(RainAdapters) public static func parseHexToBigUInt(_ hex: String) -> BigUInt {
     BigUInt(hex.strippingHexPrefix, radix: 16) ?? 0
   }
 
@@ -88,7 +88,7 @@ enum EthereumConverter {
   /// The inverse of `parseHexToDouble`: multiplies by `10^decimals` and truncates any
   /// remaining fractional part. Used where a provider only exposes a formatted decimal
   /// balance (e.g. Portal's `getAssets`, Turnkey's supported-chain API) rather than raw hex.
-  static func decimalStringToBigUInt(_ decimalString: String?, decimals: Int) -> BigUInt {
+  @_spi(RainAdapters) public static func decimalStringToBigUInt(_ decimalString: String?, decimals: Int) -> BigUInt {
     guard let decimalString, !decimalString.isEmpty else { return 0 }
 
     let value = NSDecimalNumber(string: decimalString)

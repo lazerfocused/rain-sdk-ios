@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rain Mobile SDK — Modular Provider Architecture</title>
+<style>
+  :root{
+    --bg:#0b1220;--panel:#111b2e;--panel2:#0e1726;--ink:#e7edf6;--muted:#9fb0c6;
+    --line:#1f2d44;--accent:#3dd7c9;--accent2:#5b8cff;--warn:#ffb454;--bad:#ff6b6b;
+    --good:#52d273;--code:#0a1322;--chip:#16243b;
+    --portal:#5b8cff;--turnkey:#3dd7c9;--privy:#c77dff;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:linear-gradient(180deg,#0a1120,#0b1220 40%);color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px 120px}
+  header.hero{
+    padding:64px 0 40px;border-bottom:1px solid var(--line);margin-bottom:8px;
+  }
+  .kicker{display:inline-block;font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);background:var(--chip);border:1px solid var(--line);
+    padding:6px 12px;border-radius:999px;margin-bottom:20px}
+  h1{font-size:42px;line-height:1.12;margin:0 0 16px;letter-spacing:-.02em}
+  h1 .grad{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:19px;color:var(--muted);max-width:760px;margin:0}
+  .meta{margin-top:26px;display:flex;gap:10px;flex-wrap:wrap}
+  .meta span{font-size:12.5px;color:var(--muted);border:1px solid var(--line);background:var(--panel);
+    padding:6px 12px;border-radius:8px}
+  nav.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:34px 0 10px}
+  nav.toc a{display:flex;gap:10px;align-items:center;text-decoration:none;color:var(--ink);
+    border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:12px 14px;font-size:14px;
+    transition:.15s}
+  nav.toc a:hover{border-color:var(--accent);transform:translateY(-1px)}
+  nav.toc a b{color:var(--accent);font-variant-numeric:tabular-nums}
+  section{padding:46px 0 8px;border-top:1px solid var(--line);margin-top:34px}
+  section:first-of-type{border-top:none}
+  h2{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+  h2 .num{color:var(--accent);font-size:18px;font-weight:700;margin-right:10px;font-variant-numeric:tabular-nums}
+  h3{font-size:19px;margin:30px 0 10px;color:#cfe0f5}
+  p{color:#d4deec}
+  .lead{font-size:17.5px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:18px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}h1{font-size:32px}}
+  ul.clean{list-style:none;padding:0;margin:12px 0}
+  ul.clean li{padding:8px 0 8px 30px;position:relative;border-bottom:1px dashed var(--line)}
+  ul.clean li:last-child{border-bottom:none}
+  ul.clean li::before{content:"";position:absolute;left:6px;top:16px;width:8px;height:8px;border-radius:50%;
+    background:var(--accent)}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);
+    background:var(--chip);color:var(--muted);vertical-align:middle}
+  .pill.core{color:var(--ink);border-color:#2a3a57}
+  .pill.portal{color:var(--portal);border-color:#2a3a6a}
+  .pill.turnkey{color:var(--turnkey);border-color:#1d4a48}
+  .pill.privy{color:var(--privy);border-color:#42305a}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:18px 18px;overflow:auto;
+    font:13.5px/1.6 "SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;color:#cfe0f5;margin:14px 0}
+  pre .c{color:#5f7187}/*comment*/
+  pre .k{color:#7aa2ff}/*keyword*/
+  pre .s{color:#7ee0c4}/*string*/
+  pre .t{color:#ffb454}/*type*/
+  pre .f{color:#c77dff}/*func/annotation*/
+  code.inl{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font:13px ui-monospace,Menlo,monospace;color:#9fe4d6}
+  .tag{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
+  /* diagram */
+  .diagram{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:30px 24px;margin:22px 0}
+  .core-box{border:1.5px solid #2a3a57;background:linear-gradient(180deg,#13203a,#0f1a2e);border-radius:12px;
+    padding:18px 20px;text-align:center;max-width:640px;margin:0 auto}
+  .core-box .ttl{font-weight:700;font-size:16px}
+  .core-box .zero{color:var(--accent);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase}
+  .core-box .items{color:var(--muted);font-size:13px;margin-top:8px}
+  .connector{height:34px;width:2px;background:linear-gradient(var(--line),transparent);margin:0 auto}
+  .adapters{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:6px}
+  @media(max-width:680px){.adapters{grid-template-columns:1fr}}
+  .adapter{border-radius:12px;padding:14px 16px;border:1.5px solid var(--line);background:#0f1a2e}
+  .adapter.p{border-color:#2a3a6a}.adapter.t{border-color:#1d4a48}.adapter.v{border-color:#42305a}
+  .adapter .an{font-weight:700;font-size:14px}
+  .adapter .dep{font-size:12px;color:var(--muted);margin-top:6px}
+  .adapter .vendor{display:inline-block;margin-top:8px;font-size:11.5px;border:1px dashed var(--line);
+    border-radius:6px;padding:3px 8px;color:#cfe0f5}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:20px;font-size:12.5px;color:var(--muted)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:middle}
+  /* table */
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+  td.before{color:#e9b9b9}td.after{color:#b6e8c6}
+  tr:hover td{background:#0e1726}
+  /* phases */
+  .phases{counter-reset:ph;margin-top:10px}
+  .phase{display:flex;gap:18px;padding:18px 0;border-bottom:1px solid var(--line)}
+  .phase:last-child{border-bottom:none}
+  .phase .n{counter-increment:ph;flex:0 0 44px;height:44px;width:44px;border-radius:12px;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;
+    background:var(--chip);border:1px solid var(--line);color:var(--accent)}
+  .phase .n::before{content:counter(ph)}
+  .phase h4{margin:4px 0 6px;font-size:16.5px}
+  .phase p{margin:0;color:var(--muted);font-size:14.5px}
+  .phase .ship{display:inline-block;margin-top:8px;font-size:11.5px;color:var(--good);border:1px solid #1e3a2a;
+    background:#0e1f17;border-radius:6px;padding:3px 9px}
+  .callout{border-left:3px solid var(--accent);background:#0e1a2c;border-radius:0 12px 12px 0;padding:16px 20px;margin:18px 0}
+  .callout.warn{border-left-color:var(--warn);background:#1d1810}
+  .callout .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:700}
+  .callout.warn .lbl{color:var(--warn)}
+  .twocol-code{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:880px){.twocol-code{grid-template-columns:1fr}.twocol-code .twocol-code{grid-template-columns:1fr}}
+  .platform-tag{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:14px;margin-bottom:2px}
+  .platform-tag .dot{width:9px;height:9px;border-radius:50%}
+  .ios .dot{background:var(--accent2)}.android .dot{background:var(--good)}
+  footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+  .scale{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  .bar{height:26px;border-radius:6px;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#06121f;font-weight:700}
+  .bar.mono{background:linear-gradient(90deg,#ff8a8a,#ff6b6b);width:100%}
+  .bar.modular{background:linear-gradient(90deg,#7ee0c4,#3dd7c9);width:38%}
+  .hl{color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="kicker">Architecture Proposal · Rain Mobile SDK</span>
+  <h1>One core, <span class="grad">many providers.</span></h1>
+  <p class="sub">A modular, ports-and-adapters redesign of the Rain iOS &amp; Android SDKs so that Portal, Turnkey, and Privy each live in their own distributable module — and a client links only the one they actually use.</p>
+  <div class="meta">
+    <span>iOS · Swift Package Manager + CocoaPods</span>
+    <span>Android · Gradle / Maven modules</span>
+    <span>Pattern · Hexagonal (Ports &amp; Adapters)</span>
+    <span>Status · Proposal for review</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#problem"><b>01</b> The problem</a>
+  <a href="#principle"><b>02</b> Design principle</a>
+  <a href="#architecture"><b>03</b> Architecture</a>
+  <a href="#port"><b>04</b> The provider port</a>
+  <a href="#registry"><b>05</b> Runtime registry</a>
+  <a href="#ios"><b>06</b> iOS packaging</a>
+  <a href="#android"><b>07</b> Android packaging</a>
+  <a href="#versioning"><b>08</b> Versioning &amp; BOM</a>
+  <a href="#migration"><b>09</b> Migration path</a>
+</nav>
+
+<!-- 01 -->
+<section id="problem">
+  <h2><span class="num">01</span>The problem</h2>
+  <p class="lead">Today the SDK is a single artifact that bundles every provider. As Rain adds wallet providers, that one decision compounds against every client.</p>
+
+  <div class="card">
+    <p>A client who only needs <span class="pill portal">Portal</span> still compiles and ships <span class="pill turnkey">Turnkey</span> — and tomorrow <span class="pill privy">Privy</span> — even though that code is never called. The provider SDKs are a <b>compile-time dependency of the core</b> instead of a swappable runtime detail. Concretely, that costs us:</p>
+    <ul class="clean">
+      <li><b>Binary bloat</b> — every vendor SDK ships inside every app, whether used or not.</li>
+      <li><b>Dependency conflicts</b> — multiple MPC/crypto stacks (BigInt, secp256k1, networking) coexisting in one graph is fragile and version-locked.</li>
+      <li><b>Security &amp; compliance surface</b> — a client's security team must audit <i>all three</i> providers to ship <i>one</i>.</li>
+      <li><b>Internal build friction</b> — core cannot build/test in isolation because an iOS-only provider binary (PortalSwift) sits in the same scope. Our own CI inherits the coupling.</li>
+      <li><b>It worsens with N</b> — each new provider re-taxes every existing client and lengthens every build.</li>
+    </ul>
+  </div>
+
+  <div class="scale">
+    <div style="flex:0 0 130px;color:var(--muted);font-size:13px">Today (monolith)</div>
+    <div class="bar mono">core + Portal + Turnkey + Privy + all vendor deps</div>
+  </div>
+  <div class="scale">
+    <div style="flex:0 0 130px;color:var(--muted);font-size:13px">Proposed (Portal-only client)</div>
+    <div class="bar modular">core + Portal</div>
+  </div>
+</section>
+
+<!-- 02 -->
+<section id="principle">
+  <h2><span class="num">02</span>Design principle</h2>
+  <p class="lead">Invert the dependency. The core should know <i>what</i> a wallet provider must do, never <i>which</i> provider is present.</p>
+  <div class="grid2">
+    <div class="card">
+      <div class="tag">The rule</div>
+      <p>Core defines an <b>interface (the port)</b> describing the capabilities Rain needs. Each provider is an <b>adapter</b> that implements the port and owns its vendor SDK as a private dependency. Core never imports a provider; providers depend on core.</p>
+    </div>
+    <div class="card">
+      <div class="tag">Why it isolates deps</div>
+      <p>Because the dependency arrow points <b>inward</b> (provider → core, never core → provider), each vendor SDK lives only inside its adapter module. Linking an adapter pulls in its vendor SDK; omitting the adapter keeps that SDK out of the dependency graph entirely.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 03 -->
+<section id="architecture">
+  <h2><span class="num">03</span>Architecture at a glance</h2>
+  <p class="lead">Identical shape on both platforms. One vendor-free core, one adapter per provider, a thin host app that selects providers at runtime.</p>
+
+  <div class="diagram">
+    <div class="core-box">
+      <div class="zero">Zero vendor dependencies</div>
+      <div class="ttl">rain-core</div>
+      <div class="items">WalletProvider (port) · Capability model · Provider registry · Rain domain logic — CST auth, collateral deposit / withdraw, tx orchestration</div>
+    </div>
+    <div class="connector"></div>
+    <div style="text-align:center;color:var(--muted);font-size:12px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px">implements ▲ &nbsp;·&nbsp; depends on rain-core</div>
+    <div class="adapters">
+      <div class="adapter p">
+        <div class="an" style="color:var(--portal)">rain-portal</div>
+        <div class="dep">MPC adapter</div>
+        <span class="vendor">+ PortalSwift / Portal-Android</span>
+      </div>
+      <div class="adapter t">
+        <div class="an" style="color:var(--turnkey)">rain-turnkey</div>
+        <div class="dep">P256-stamp adapter</div>
+        <span class="vendor">+ Turnkey SDK</span>
+      </div>
+      <div class="adapter v">
+        <div class="an" style="color:var(--privy)">rain-privy</div>
+        <div class="dep">Embedded-key adapter</div>
+        <span class="vendor">+ Privy SDK</span>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#2a3a57"></i>Core — shipped to everyone</span>
+      <span><i style="background:var(--portal)"></i>Portal adapter</span>
+      <span><i style="background:var(--turnkey)"></i>Turnkey adapter</span>
+      <span><i style="background:var(--privy)"></i>Privy adapter</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:4px">What lives where</h3>
+    <table>
+      <tr><th>Layer</th><th>Owns</th><th>Knows about providers?</th></tr>
+      <tr><td><span class="pill core">rain-core</span></td><td>Port interface, capability model, registry, all Rain business logic (CST, collateral flows)</td><td>No — only the abstract port</td></tr>
+      <tr><td><span class="pill portal">rain-portal</span></td><td>Portal MPC signing, key gen, recovery → mapped onto the port</td><td>Only Portal</td></tr>
+      <tr><td><span class="pill turnkey">rain-turnkey</span></td><td>Turnkey P256 stamper, org/sub-org, auth → mapped onto the port</td><td>Only Turnkey</td></tr>
+      <tr><td><span class="pill privy">rain-privy</span></td><td>Privy embedded keys, auth → mapped onto the port</td><td>Only Privy</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- 04 -->
+<section id="port">
+  <h2><span class="num">04</span>The provider port</h2>
+  <p class="lead">The hardest and most important design decision: the port is the <b>lowest common denominator of what Rain needs</b> — not the union of what every vendor offers.</p>
+
+  <p>Where providers diverge — Turnkey's P256 stamper, Portal's MPC ceremony, Privy's embedded keys — that complexity is hidden <i>entirely inside the adapter</i>. Where a provider can't do something at all, we model it explicitly with a <b>capability set</b> so core degrades gracefully instead of crashing.</p>
+
+  <div class="twocol-code">
+    <div>
+      <div class="platform-tag ios"><span class="dot"></span>iOS · Swift — <code class="inl">RainCore</code></div>
+<pre><span class="c">// Vendor-agnostic. No Portal/Turnkey/Privy imports here.</span>
+<span class="k">public protocol</span> <span class="t">WalletProvider</span> {
+    <span class="k">var</span> id: <span class="t">ProviderID</span> { <span class="k">get</span> }
+    <span class="k">var</span> capabilities: <span class="t">Set</span>&lt;<span class="t">Capability</span>&gt; { <span class="k">get</span> }
+
+    <span class="k">func</span> <span class="f">createWallet</span>(_ p: <span class="t">WalletParams</span>) <span class="k">async throws</span> -&gt; <span class="t">Wallet</span>
+    <span class="k">func</span> <span class="f">authenticate</span>(_ s: <span class="t">SessionContext</span>) <span class="k">async throws</span> -&gt; <span class="t">AuthResult</span>
+    <span class="k">func</span> <span class="f">sign</span>(_ payload: <span class="t">SignPayload</span>) <span class="k">async throws</span> -&gt; <span class="t">Signature</span>
+}
+
+<span class="k">public enum</span> <span class="t">Capability</span> {
+    <span class="k">case</span> export, recovery, multiChain, biometricGate
+}</pre>
+    </div>
+    <div>
+      <div class="platform-tag android"><span class="dot"></span>Android · Kotlin — <code class="inl">rain-core</code></div>
+<pre><span class="c">// Vendor-agnostic. No provider SDK imports here.</span>
+<span class="k">interface</span> <span class="t">WalletProvider</span> {
+    <span class="k">val</span> id: <span class="t">ProviderId</span>
+    <span class="k">val</span> capabilities: <span class="t">Set</span>&lt;<span class="t">Capability</span>&gt;
+
+    <span class="k">suspend fun</span> <span class="f">createWallet</span>(p: <span class="t">WalletParams</span>): <span class="t">Wallet</span>
+    <span class="k">suspend fun</span> <span class="f">authenticate</span>(s: <span class="t">SessionContext</span>): <span class="t">AuthResult</span>
+    <span class="k">suspend fun</span> <span class="f">sign</span>(payload: <span class="t">SignPayload</span>): <span class="t">Signature</span>
+}
+
+<span class="k">enum class</span> <span class="t">Capability</span> {
+    EXPORT, RECOVERY, MULTI_CHAIN, BIOMETRIC_GATE
+}</pre>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="lbl">Design discipline</div>
+    <p style="margin:6px 0 0">Resist widening the port to fit each new vendor. If Privy introduces a need core doesn't have, prefer an <i>optional capability</i> over a new required method. A bloated port re-couples everyone — the exact problem we're solving.</p>
+  </div>
+</section>
+
+<!-- 05 -->
+<section id="registry">
+  <h2><span class="num">05</span>Runtime registry — single-provider is just N = 1</h2>
+  <p class="lead">Because some clients will run one provider and others will run several (migration, fallback, A/B), we design the registry for the multi-provider case. A single-provider app is simply the trivial instance of it.</p>
+
+  <p>Each adapter <b>self-registers</b> when present. The host app resolves a provider by ID (or by required capability). Nothing in core references a concrete provider type — adapters plug in from the outside.</p>
+
+  <div class="twocol-code">
+    <div>
+      <div class="platform-tag ios"><span class="dot"></span>iOS · app wiring</div>
+<pre><span class="c">// App links only the adapters it ships.</span>
+<span class="k">import</span> RainCore
+<span class="k">import</span> RainPortal     <span class="c">// ← only these two</span>
+<span class="k">import</span> RainTurnkey    <span class="c">//   pull vendor SDKs</span>
+
+<span class="k">let</span> rain = <span class="t">RainSDK</span>(registry: [
+    <span class="t">PortalProvider</span>(config: .portal),
+    <span class="t">TurnkeyProvider</span>(config: .turnkey),
+])
+
+<span class="c">// resolve by id…</span>
+<span class="k">let</span> w = <span class="k">try await</span> rain
+    .provider(.portal)
+    .createWallet(params)
+
+<span class="c">// …or by capability</span>
+<span class="k">let</span> exporter = rain.first { $0.capabilities.contains(.export) }</pre>
+    </div>
+    <div>
+      <div class="platform-tag android"><span class="dot"></span>Android · app wiring (Hilt/DI friendly)</div>
+<pre><span class="c">// Module deps decide what's on the classpath.</span>
+<span class="k">val</span> rain = <span class="t">RainSdk</span>.<span class="f">builder</span>()
+    .<span class="f">register</span>(<span class="t">PortalProvider</span>(portalConfig))
+    .<span class="f">register</span>(<span class="t">TurnkeyProvider</span>(turnkeyConfig))
+    .<span class="f">build</span>()
+
+<span class="c">// resolve by id…</span>
+<span class="k">val</span> w = rain
+    .<span class="f">provider</span>(<span class="t">ProviderId</span>.PORTAL)
+    .<span class="f">createWallet</span>(params)
+
+<span class="c">// …or by capability</span>
+<span class="k">val</span> exporter = rain.first {
+    <span class="t">Capability</span>.EXPORT <span class="k">in</span> it.capabilities
+}</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <p style="margin:0"><span class="hl">Single-provider app:</span> register exactly one adapter and never call <code class="inl">provider(id)</code> with a second — the registry, capability negotiation, and DI all collapse to the trivial case with zero extra ceremony. We get the future-proofing for free without making the common path heavier.</p>
+  </div>
+</section>
+
+<!-- 06 -->
+<section id="ios">
+  <h2><span class="num">06</span>iOS packaging — where isolation is delivered</h2>
+  <p class="lead">The architecture is necessary but not sufficient; the dependency isolation is delivered by <i>how we distribute</i>. On iOS, that means separate SPM packages, not just separate targets in one package.</p>
+
+  <div class="callout">
+    <div class="lbl">Why separate packages, not one package with many products</div>
+    <p style="margin:6px 0 0">If Portal/Turnkey/Privy are products inside a single <code class="inl">Package.swift</code>, every client still <i>resolves</i> (fetches) all vendor dependencies even when they link only one product. Splitting each provider into its own package means a Portal-only client's dependency graph never even mentions Turnkey — and our core team can build &amp; test core without the iOS-only PortalSwift binary in scope.</p>
+  </div>
+
+  <div class="twocol-code">
+    <div>
+      <div class="tag">RainCore/Package.swift</div>
+<pre><span class="c">// No vendor dependencies whatsoever.</span>
+<span class="k">let</span> package = <span class="t">Package</span>(
+  name: <span class="s">"RainCore"</span>,
+  products: [.library(name: <span class="s">"RainCore"</span>,
+                      targets: [<span class="s">"RainCore"</span>])],
+  targets: [.target(name: <span class="s">"RainCore"</span>)]
+)</pre>
+    </div>
+    <div>
+      <div class="tag">RainPortal/Package.swift</div>
+<pre><span class="k">let</span> package = <span class="t">Package</span>(
+  name: <span class="s">"RainPortal"</span>,
+  products: [.library(name: <span class="s">"RainPortal"</span>,
+                      targets: [<span class="s">"RainPortal"</span>])],
+  dependencies: [
+    .package(url: <span class="s">"…/rain-core"</span>, from: <span class="s">"1.0.0"</span>),
+    .package(url: <span class="s">"…/PortalSwift"</span>, from: <span class="s">"4.0.0"</span>),
+  ],
+  targets: [.target(name: <span class="s">"RainPortal"</span>,
+    dependencies: [<span class="s">"RainCore"</span>, <span class="s">"PortalSwift"</span>])]
+)</pre>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="tag">Client adds only what they need</div>
+<pre><span class="c">// A Portal-only app's Package.swift</span>
+dependencies: [
+  .package(url: <span class="s">"…/rain-portal"</span>, from: <span class="s">"1.0.0"</span>)
+  <span class="c">// rain-core comes transitively.</span>
+  <span class="c">// Turnkey &amp; Privy never resolved.</span>
+]</pre>
+    </div>
+    <div class="card">
+      <div class="tag">CocoaPods parity (subspecs)</div>
+<pre>pod <span class="s">'Rain/Core'</span>
+pod <span class="s">'Rain/Portal'</span>   <span class="c"># pulls PortalSwift</span>
+<span class="c"># pod 'Rain/Turnkey'  ← omitted = absent</span></pre>
+      <p style="font-size:13.5px;color:var(--muted);margin:10px 0 0">Each subspec declares its own <code class="inl">dependency</code>, so an unselected subspec contributes nothing to the Podfile.lock graph.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 07 -->
+<section id="android">
+  <h2><span class="num">07</span>Android packaging</h2>
+  <p class="lead">Separate Maven artifacts, one per module. The client's Gradle file decides what's on the classpath; an unselected provider's transitive vendor SDK never enters the dependency graph.</p>
+
+  <div class="twocol-code">
+    <div>
+      <div class="tag">Published artifacts</div>
+<pre>xyz.rain:rain-core:1.x        <span class="c">// no vendor deps</span>
+xyz.rain:rain-portal:1.x      <span class="c">// api(core)+Portal</span>
+xyz.rain:rain-turnkey:1.x     <span class="c">// api(core)+Turnkey</span>
+xyz.rain:rain-privy:1.x       <span class="c">// api(core)+Privy</span></pre>
+    </div>
+    <div>
+      <div class="tag">rain-portal/build.gradle.kts</div>
+<pre>dependencies {
+  <span class="f">api</span>(<span class="s">"xyz.rain:rain-core:1.0.0"</span>)
+  <span class="f">implementation</span>(<span class="s">"co.portalhq:portal-android:4.0.0"</span>)
+}
+<span class="c">// 'implementation' keeps Portal's internals</span>
+<span class="c">// off the consumer's compile classpath.</span></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tag">A Portal-only app — one line</div>
+<pre>dependencies {
+  <span class="f">implementation</span>(<span class="s">"xyz.rain:rain-portal:1.0.0"</span>)
+  <span class="c">// rain-core resolved transitively.</span>
+  <span class="c">// Turnkey &amp; Privy artifacts are never fetched, compiled, or shipped.</span>
+}</pre>
+    <p style="margin:10px 0 0;font-size:14px;color:var(--muted)">R8/ProGuard would strip <i>unused code</i> at the end — but module separation is stronger: the dependency never enters the graph in the first place, so there is no version to resolve, no conflict to mediate, and nothing for a security audit to cover.</p>
+  </div>
+</section>
+
+<!-- 08 -->
+<section id="versioning">
+  <h2><span class="num">08</span>Versioning &amp; the compatibility BOM</h2>
+  <p class="lead">Independent modules mean independent release cadence — but we still need a sane way to say "these versions work together."</p>
+  <div class="grid2">
+    <div class="card">
+      <div class="tag">Per-module semver</div>
+      <ul class="clean">
+        <li>Each module versions independently. Ship a Privy fix without forcing a Portal client to upgrade.</li>
+        <li><b>Core defines the contract.</b> A breaking port change is a core major bump; adapters declare the core range they support.</li>
+        <li>Adapters never break each other — they share nothing but core.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="tag">Bill of Materials (BOM)</div>
+      <p>Publish a <code class="inl">rain-bom</code> that pins a tested matrix of core + adapter versions. Clients import the BOM and omit individual versions.</p>
+<pre><span class="c">// Android</span>
+<span class="f">implementation</span>(platform(<span class="s">"xyz.rain:rain-bom:2026.06"</span>))
+<span class="f">implementation</span>(<span class="s">"xyz.rain:rain-portal"</span>) <span class="c">// version from BOM</span></pre>
+      <p style="font-size:13px;color:var(--muted);margin:8px 0 0">iOS has no native BOM; we ship a documented compatibility matrix + a verified <code class="inl">Package.resolved</code> reference.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 09 -->
+<section id="migration">
+  <h2><span class="num">09</span>Migration path — refactor, not rewrite</h2>
+  <p class="lead">This is the part that de-risks the proposal: every phase ships independently and stays backward-compatible. We are never in a broken half-state, and we never block client releases.</p>
+
+  <div class="phases">
+    <div class="phase">
+      <div class="n"></div>
+      <div>
+        <h4>Extract the port in place</h4>
+        <p>Define <code class="inl">WalletProvider</code> + capability model in the existing codebase. Make today's Portal/Turnkey code implement it. No packaging change yet, no behavior change.</p>
+        <span class="ship">Ships as today's monolith — zero client impact</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="n"></div>
+      <div>
+        <h4>Push each vendor behind its adapter</h4>
+        <p>Move provider-specific code (P256 stamper, MPC ceremony) behind the adapter boundary internally. Core stops referencing vendor types directly. Still one artifact.</p>
+        <span class="ship">Internal seam only — still backward compatible</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="n"></div>
+      <div>
+        <h4>Split the build &amp; publish</h4>
+        <p>Publish <code class="inl">rain-core</code> + <code class="inl">rain-portal</code> + <code class="inl">rain-turnkey</code> as separate modules. The old monolith becomes a thin umbrella that re-exports them, so existing integrations keep working untouched.</p>
+        <span class="ship">New clients get modular; old clients unaffected</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="n"></div>
+      <div>
+        <h4>Onboard Privy as a net-new module</h4>
+        <p>Privy arrives as <code class="inl">rain-privy</code> — its own artifact, its own vendor dep. The proof the architecture works: a new provider costs existing clients <b>nothing</b>.</p>
+        <span class="ship">Validates the whole thesis</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="n"></div>
+      <div>
+        <h4>Deprecate the umbrella</h4>
+        <p>Once clients have migrated to per-provider modules, sunset the monolithic artifact on a published timeline.</p>
+        <span class="ship">End state — fully modular</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="lbl">Migration tooling</div>
+    <p style="margin:6px 0 0">A <b>migration skill</b> will ship alongside the modular release so a coding agent can perform the move automatically. It rewrites a monolith integration to the per-provider modules — swapping the umbrella dependency for the specific <code class="inl">rain-portal</code> / <code class="inl">rain-turnkey</code> / <code class="inl">rain-privy</code> artifact (SPM/CocoaPods on iOS, Gradle/Maven on Android), updating imports and provider registration, and verifying the build. Clients adopt the new architecture without a manual refactor.</p>
+  </div>
+</section>
+
+<footer>
+  Rain Mobile SDK · Modular Provider Architecture · Proposal for review — iOS &amp; Android.<br>
+  Pattern: Ports &amp; Adapters (Hexagonal) · Distribution: SPM/CocoaPods (iOS), Gradle/Maven (Android).
+</footer>
+
+</div>
+</body>
+</html>

@@ -3,7 +3,7 @@ import Foundation
 import TurnkeySwift
 import TurnkeyTypes
 import Web3
-@testable import RainSDK
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Solana-path tests for the Turnkey adapter, driven through `RainSDKManager`. Stubs that use
 /// `MockURLProtocol` run serialized (global registration).

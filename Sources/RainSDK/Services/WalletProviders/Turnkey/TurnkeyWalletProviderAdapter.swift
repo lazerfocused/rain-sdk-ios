@@ -27,6 +27,9 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     let sendTransactionStatusId: String?
   }
 
+  let id: ProviderID = .turnkey
+  let capabilities: Set<Capability> = [.typedDataSigning, .feeEstimation, .solanaTransfers, .multiChain]
+
   private let turnkey: TurnkeyContextProtocol
   private let transactionBuilder: TransactionBuilderProtocol?
   private let networkConfigsByChainId: [Int: NetworkConfig]

@@ -3,21 +3,6 @@ import Web3
 
 // MARK: Internal Helpers
 extension RainSDKManager {
-  /// Validate input parameters before Portal initialization
-  func validateInputs(
-    portalSessionToken: String,
-    networkConfigs: [NetworkConfig]
-  ) throws {
-    // Validate token
-    guard !portalSessionToken.isEmpty else {
-      RainLogger.warning("Rain SDK: Empty portal session token provided")
-      throw RainSDKError.unauthorized
-    }
-    
-    // Validate network configs
-    try validateNetworkConfigs(networkConfigs)
-  }
-  
   /// Validate network configurations
   func validateNetworkConfigs(_ networkConfigs: [NetworkConfig]) throws {
     guard !networkConfigs.isEmpty else {
@@ -35,30 +20,6 @@ extension RainSDKManager {
         throw RainSDKError.invalidConfig(chainId: networkConfig.chainId, rpcUrl: networkConfig.rpcUrl)
       }
     }
-  }
-  
-  /// Build RPC configuration dictionary from NetworkConfig array
-  func buildRpcConfig(from networkConfigs: [NetworkConfig]) throws -> [String: String] {
-    var config: [String: String] = [:]
-    
-    for networkConfig in networkConfigs {
-      // Validate chain ID
-      guard networkConfig.chainId > 0 else {
-        throw RainSDKError.invalidConfig(chainId: networkConfig.chainId, rpcUrl: networkConfig.rpcUrl)
-      }
-      
-      // Validate RPC URL format
-      guard networkConfig.rpcUrl.isValidHTTPURL() else {
-        throw RainSDKError.invalidConfig(chainId: networkConfig.chainId, rpcUrl: networkConfig.rpcUrl)
-      }
-      
-      // Use the eip155ChainId property from NetworkConfig
-      config[networkConfig.eip155ChainId] = networkConfig.rpcUrl
-      
-      RainLogger.debug("Rain SDK: Added network config - Chain ID: \(networkConfig.chainId), RPC: \(networkConfig.rpcUrl)")
-    }
-    
-    return config
   }
   
   /// Builds withdrawal transaction params: EIP-712 message, admin signature via Portal, and calldata.

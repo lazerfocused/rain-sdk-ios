@@ -1,5 +1,5 @@
 import Foundation
-import PortalSwift
+import RainPortal
 
 /// Portal wallet recovery previously pulled the encrypted backup share from the Liquidity
 /// Financial proxy (`GET /v1/portal/backup`). The Rain dev API has no equivalent yet — backup/

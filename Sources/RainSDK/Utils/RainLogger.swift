@@ -48,17 +48,17 @@ public enum RainLogger {
   // MARK: - Public Logging
   
   /// Log an info message
-  static func info(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+  @_spi(RainAdapters) public static func info(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
     log(message, level: .info, file: file, function: function, line: line)
   }
   
   /// Log a warning message
-  static func warning(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+  @_spi(RainAdapters) public static func warning(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
     log(message, level: .warning, file: file, function: function, line: line)
   }
   
   /// Log an error message
-  static func error(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+  @_spi(RainAdapters) public static func error(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
     log(message, level: .error, file: file, function: function, line: line)
   }
   
@@ -78,7 +78,7 @@ public enum RainLogger {
   // MARK: - Internal Debug Logging
   
   /// Internal debug logging for SDK developers
-  static func debug(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+  @_spi(RainAdapters) public static func debug(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
     guard isInternalDebugEnabled else { return }
     
     let fileName = (file as NSString).lastPathComponent

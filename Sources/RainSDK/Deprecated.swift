@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import PortalSwift
 
 public extension RainSDK {
   /// Deprecated alias for ``sendToken(chainId:contractAddress:to:amount:decimals:)``.
@@ -31,13 +30,6 @@ public extension RainSDK {
   @available(*, deprecated, message: "Renamed to sendNative. It returns RainTokenTransferResult; read .transactionHash for the hash.")
   func sendNativeToken(chainId: Int, to: String, amount: Double) async throws -> String {
     try await sendNative(chainId: chainId, to: to, amount: amount).transactionHash
-  }
-
-  /// Deprecated alias for ``buildTransactionParameters(walletAddress:contractAddress:transactionData:)``.
-  @available(*, deprecated, message: "Renamed to buildTransactionParameters, which returns Rain-owned RainTransactionParameters. This shim adapts to Portal's ETHTransactionParam.")
-  func composeTransactionParameters(walletAddress: String, contractAddress: String, transactionData: String) -> ETHTransactionParam {
-    let p = buildTransactionParameters(walletAddress: walletAddress, contractAddress: contractAddress, transactionData: transactionData)
-    return ETHTransactionParam(from: p.from, to: p.to, value: p.value, data: p.data)
   }
 
   /// Deprecated. Use ``getBalance(chainId:token:)`` with `.native` and read `.decimalAmount`.

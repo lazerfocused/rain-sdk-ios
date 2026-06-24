@@ -1,10 +1,10 @@
 import Foundation
 import UIKit
 import RainSDK
+import RainPortal
 import Web3
 import Web3Core
 import web3swift
-import PortalSwift
 import TurnkeySwift
 
 /// Service class for managing Rain SDK operations
@@ -396,14 +396,9 @@ class RainSDKService: ObservableObject {
 
   // MARK: - Portal Access
 
-  /// Check if SDK is initialized
+  /// Check if a Portal provider is active
   var hasPortal: Bool {
-    do {
-      _ = try sdkManager.portal
-      return true
-    } catch {
-      return false
-    }
+    (try? sdkManager.provider(.portal)) is PortalProvider
   }
 
   /// True when any wallet provider (Portal or Turnkey) is active.
@@ -439,11 +434,10 @@ class RainSDKService: ObservableObject {
   }
 
   private func getPortal() throws -> Portal {
-    do {
-      return try sdkManager.portal
-    } catch {
+    guard let provider = (try? sdkManager.provider(.portal)) as? PortalProvider else {
       throw RainSDKError.sdkNotInitialized
     }
+    return try provider.portal
   }
   
   // MARK: - Reset

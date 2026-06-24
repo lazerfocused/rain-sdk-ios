@@ -51,7 +51,11 @@ public enum RainSDKError: Error, LocalizedError, Equatable {
   
   /// RAIN_502: Error processing EIP-712 data or internal state management failure
   case internalLogicError(details: String)
-  
+
+  /// RAIN_503: The active provider does not implement the requested operation (e.g. a stub
+  /// or scaffold provider). Carries the method name for diagnostics.
+  case notImplemented(method: String)
+
   // MARK: - Error Code
   
   /// The error code (e.g., "RAIN_101")
@@ -83,6 +87,8 @@ public enum RainSDKError: Error, LocalizedError, Equatable {
       return "RAIN_501"
     case .internalLogicError:
       return "RAIN_502"
+    case .notImplemented:
+      return "RAIN_503"
     }
   }
   
@@ -116,6 +122,8 @@ public enum RainSDKError: Error, LocalizedError, Equatable {
       return "[\(errorCode)] An unhandled error occurred within the wallet provider. \(underlying.localizedDescription)"
     case .internalLogicError(let details):
       return "[\(errorCode)] Error processing EIP-712 data or internal state management failure. Details: \(details)"
+    case .notImplemented(let method):
+      return "[\(errorCode)] The active wallet provider does not implement '\(method)'."
     }
   }
 }

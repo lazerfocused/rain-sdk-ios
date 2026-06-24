@@ -2,7 +2,8 @@ import Testing
 import Foundation
 import Web3
 import PortalSwift
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Locks the 1.0.0 source-compat shims in `Deprecated.swift`: return-type parity, the
 /// Double-collapse, verbatim contract-address keying, and delegation to the canonical API.
@@ -16,7 +17,7 @@ struct DeprecatedAPITests {
   @Test("getNativeBalance collapses the native Balance to a Double and delegates with .native")
   func testGetNativeBalance() async throws {
     let (manager, stub) = try await TestManagers.stubProviderManager()
-    stub.balanceToReturn = Balance(token: .native, chainId: 1, rawAmount: BigUInt(1_500_000_000_000_000_000), decimals: 18, symbol: "ETH")
+    stub.balanceToReturn = RainBalance(token: .native, chainId: 1, rawAmount: BigUInt(1_500_000_000_000_000_000), decimals: 18, symbol: "ETH")
 
     let value: Double = try await manager.getNativeBalance(chainId: 1)
 
@@ -28,7 +29,7 @@ struct DeprecatedAPITests {
   @Test("getERC20Balance collapses to a Double, ignores decimals, and delegates with .contract")
   func testGetERC20Balance() async throws {
     let (manager, stub) = try await TestManagers.stubProviderManager()
-    stub.balanceToReturn = Balance(token: .contract(address: Self.mixedCaseToken), chainId: 1, rawAmount: BigUInt(7_000_000), decimals: 6, symbol: "USDC")
+    stub.balanceToReturn = RainBalance(token: .contract(address: Self.mixedCaseToken), chainId: 1, rawAmount: BigUInt(7_000_000), decimals: 6, symbol: "USDC")
 
     // decimals arg is intentionally wrong — it must be ignored.
     let value: Double = try await manager.getERC20Balance(chainId: 1, tokenAddress: Self.mixedCaseToken, decimals: 999)

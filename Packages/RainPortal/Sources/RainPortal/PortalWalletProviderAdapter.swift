@@ -1,27 +1,90 @@
 import Foundation
 import PortalSwift
 import Web3
+@_spi(RainAdapters) import RainSDK
 
-/// Portal-based implementation of `RainWalletProvider`.
-/// Used when the SDK is initialized with `initializePortal(...)`.
-internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedDataSignerProvider, RainTransactionFeeEstimatingProvider, @unchecked Sendable {
-  private let portal: PortalRequestProtocol
-  private let transactionBuilder: TransactionBuilderProtocol?
+/// Portal-based implementation of `RainWalletProvider`. Construct it and register it with the SDK
+/// via `manager.register(_:)`, or use `RainSDKManager.initializePortal(...)` from this package.
+public final class PortalProvider: RainWalletProvider, RainTypedDataSignerProvider, RainTransactionFeeEstimatingProvider, @unchecked Sendable {
+  public let id: ProviderID = .portal
+  public let capabilities: Set<Capability> = [.typedDataSigning, .feeEstimation, .multiChain]
+
+  private let portalClient: PortalRequestProtocol
+  private let portalConcrete: Portal?
   private let tokenStore: TokenMetadataStore
 
+  /// The underlying Portal instance, for clients that need direct Portal access (e.g. backup UI).
+  /// Throws `sdkNotInitialized` when the provider was built from a mock client (tests).
+  public var portal: Portal {
+    get throws {
+      guard let portalConcrete else { throw RainSDKError.sdkNotInitialized }
+      return portalConcrete
+    }
+  }
+
+  /// Builds a provider from a live Portal instance, constructing the token-metadata store from the
+  /// given network configs.
+  public init(portal: Portal, networkConfigs: [NetworkConfig], seedTokens: [TokenInfo] = []) {
+    self.portalClient = portal
+    self.portalConcrete = portal
+    self.tokenStore = TokenMetadataStore(networkConfigs: networkConfigs, seedTokens: seedTokens)
+  }
+
+  /// Internal initializer for tests/mocks: inject any `PortalRequestProtocol` (e.g. MockPortal)
+  /// and a prepared token store.
   internal init(
     portal: PortalRequestProtocol,
-    transactionBuilder: TransactionBuilderProtocol? = nil,
     tokenStore: TokenMetadataStore
   ) {
-    self.portal = portal
-    self.transactionBuilder = transactionBuilder
+    self.portalClient = portal
+    self.portalConcrete = portal as? Portal
     self.tokenStore = tokenStore
+  }
+
+  // MARK: - Portal boundary
+
+  // Thin wrappers around the underlying Portal calls that map Portal vendor errors to
+  // `RainSDKError` (via `fromPortal`) at the adapter boundary, so only domain errors —
+  // never raw Portal types — leave the provider. `CancellationError` is preserved so
+  // structured-concurrency cancellation still propagates.
+
+  private func portalAddresses() async throws -> [PortalNamespace: String?] {
+    do { return try await portalClient.addresses }
+    catch let cancellation as CancellationError { throw cancellation }
+    catch { throw RainSDKError.fromPortal(error) }
+  }
+
+  private func portalRequest(
+    chainId: String,
+    method: PortalRequestMethod,
+    params: [Any],
+    options: RequestOptions?
+  ) async throws -> PortalProviderResult {
+    do { return try await portalClient.request(chainId: chainId, method: method, params: params, options: options) }
+    catch let cancellation as CancellationError { throw cancellation }
+    catch { throw RainSDKError.fromPortal(error) }
+  }
+
+  private func portalGetAssets(_ chainId: String) async throws -> AssetsResponse {
+    do { return try await portalClient.getAssets(chainId) }
+    catch let cancellation as CancellationError { throw cancellation }
+    catch { throw RainSDKError.fromPortal(error) }
+  }
+
+  private func portalGetTransactions(
+    _ chainId: String,
+    limit: Int?,
+    offset: Int?,
+    order: TransactionOrder?
+  ) async throws -> [FetchedTransaction] {
+    do { return try await portalClient.getTransactions(chainId, limit: limit, offset: offset, order: order) }
+    catch let cancellation as CancellationError { throw cancellation }
+    catch { throw RainSDKError.fromPortal(error) }
   }
 
   public func address(
   ) async throws -> String {
-    let addresses = try await portal.addresses
+    let addresses = try await portalAddresses()
     let eip155 = PortalNamespace.eip155
     
     guard let addr = addresses[eip155] ?? nil, !addr.isEmpty else {
@@ -46,7 +109,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
     // Simulate the transaction first via eth_call to catch failures (e.g. insufficient funds)
     // before broadcasting — no balance fetch needed, the node validates it for free.
     do {
-      _ = try await portal.request(
+      _ = try await portalClient.request(
         chainId: chainIdString,
         method: .eth_call,
         params: [ethParam, "latest"],
@@ -57,7 +120,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
       throw RainSDKError.transactionSimulationFailed(underlying: error)
     }
 
-    let response = try await portal.request(
+    let response = try await portalRequest(
       chainId: chainIdString,
       method: .eth_sendTransaction,
       params: [ethParam],
@@ -71,14 +134,14 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
     return txHash
   }
 
-  func signTypedData(
+  public func signTypedData(
     chainId: Int,
     walletAddress: String,
     typedData: String
   ) async throws -> String {
     let chainIdString = ChainIDFormat.EIP155.format(chainId: chainId)
 
-    let response = try await portal.request(
+    let response = try await portalRequest(
       chainId: chainIdString,
       method: .eth_signTypedData_v4,
       params: [walletAddress, typedData],
@@ -92,7 +155,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
     return signature
   }
 
-  func estimateTransactionFee(
+  public func estimateTransactionFee(
     chainId: Int,
     walletAddress: String,
     params: WalletTransactionParams
@@ -122,7 +185,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
   public func getBalance(
     chainId: Int,
     token: Token
-  ) async throws -> Balance {
+  ) async throws -> RainBalance {
     switch token {
     case .native:
       return try await fetchNativeBalance(chainId: chainId)
@@ -133,19 +196,19 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
 
   public func getBalances(
     chainId: Int
-  ) async throws -> [Balance] {
+  ) async throws -> [RainBalance] {
     let native = try await fetchNativeBalance(chainId: chainId)
     let chainIdString = ChainIDFormat.EIP155.format(chainId: chainId)
-    let tokenBalances = try await portal.getAssets(chainIdString).tokenBalances ?? []
+    let tokenBalances = try await portalGetAssets(chainIdString).tokenBalances ?? []
 
-    var output: [Balance] = [native]
+    var output: [RainBalance] = [native]
     for entry in tokenBalances {
       guard let address = entry.metadata?.tokenAddress, !address.isEmpty else { continue }
       let info = await tokenStore.tokenInfo(chainId: chainId, address: address)
       let raw = reconstructRawAmount(entry: entry, decimals: info.decimals)
       guard raw > 0 else { continue }
       output.append(
-        Balance(
+        RainBalance(
           token: .contract(address: address),
           chainId: chainId,
           rawAmount: raw,
@@ -159,10 +222,10 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
   }
 
   /// Fetches the native balance via `eth_getBalance`, preserving exact wei precision.
-  private func fetchNativeBalance(chainId: Int) async throws -> Balance {
+  private func fetchNativeBalance(chainId: Int) async throws -> RainBalance {
     let walletAddress = try await address()
     let chainIdString = ChainIDFormat.EIP155.format(chainId: chainId)
-    let response = try await portal.request(
+    let response = try await portalRequest(
       chainId: chainIdString,
       method: .eth_getBalance,
       params: [walletAddress, "latest"],
@@ -170,7 +233,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
     )
     let raw = parseBalanceString(portalResultString(response))
     let native = await tokenStore.nativeCurrency(for: chainId)
-    return Balance(
+    return RainBalance(
       token: .native,
       chainId: chainId,
       rawAmount: raw,
@@ -181,7 +244,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
   }
 
   /// Fetches a single ERC-20 balance via direct RPC `eth_call` (balanceOf), preserving exact precision.
-  private func fetchContractBalance(chainId: Int, address: String) async throws -> Balance {
+  private func fetchContractBalance(chainId: Int, address: String) async throws -> RainBalance {
     let walletAddress = try await self.address()
     let info = await tokenStore.tokenInfo(chainId: chainId, address: address)
     let chainIdString = ChainIDFormat.EIP155.format(chainId: chainId)
@@ -192,14 +255,14 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
     ]
 
     do {
-      let response = try await portal.request(
+      let response = try await portalRequest(
         chainId: chainIdString,
         method: .eth_call,
         params: [callParams, "latest"],
         options: nil
       )
       let raw = EthereumConverter.parseHexToBigUInt(response.hexString)
-      return Balance(
+      return RainBalance(
         token: .contract(address: address),
         chainId: chainId,
         rawAmount: raw,
@@ -256,7 +319,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
   ) async throws -> [WalletTransaction] {
     let chainIdString = ChainIDFormat.EIP155.format(chainId: chainId)
     let portalOrder = order?.toPortalOrder
-    let fetchedTransactions = try await portal.getTransactions(
+    let fetchedTransactions = try await portalGetTransactions(
       chainIdString,
       limit: limit,
       offset: offset,
@@ -332,7 +395,7 @@ internal final class PortalWalletProviderAdapter: RainWalletProvider, RainTypedD
   ) async throws -> Double {
     let chainIdString = ChainIDFormat.EIP155.format(chainId: chainId)
 
-    let response = try await portal.request(
+    let response = try await portalRequest(
       chainId: chainIdString,
       method: method,
       params: params,

@@ -1,7 +1,7 @@
 import Foundation
 
 extension Double {
-  var weiToEth: Double {
+  @_spi(RainAdapters) public var weiToEth: Double {
     self / pow(10, 18)
   }
   

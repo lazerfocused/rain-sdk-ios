@@ -2,7 +2,8 @@ import Testing
 import Foundation
 import Web3
 @testable import PortalSwift
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 @Suite("Portal Adapter Tests")
 struct PortalAdapterTests {

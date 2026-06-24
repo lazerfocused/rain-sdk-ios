@@ -1,6 +1,7 @@
 import Testing
 import Foundation
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Manager-contract tests for send APIs: validation, mode guards, error wrapping.
 /// Provider-specific success paths live in `Adapters/`.

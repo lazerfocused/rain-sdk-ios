@@ -2,7 +2,8 @@ import Testing
 import Foundation
 import Web3
 @testable import PortalSwift
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Manager-contract tests for balance APIs: validation, mode guards, and error wrapping.
 /// Provider-specific success paths and request-call assertions live in `Adapters/`.
@@ -88,7 +89,7 @@ struct BalanceTests {
   @Test("getBalance forwards chain/token to the provider and returns its rich Balance")
   func testGetBalanceRoutesToProvider() async throws {
     let (manager, stub) = try await TestManagers.stubProviderManager()
-    let expected = Balance(
+    let expected = RainBalance(
       token: .contract(address: TestFixtures.usdcAddress),
       chainId: 1,
       rawAmount: BigUInt(7_000_000),
@@ -112,14 +113,14 @@ struct BalanceTests {
   @Test("getTokenBalances returns whatever the provider returned for the chain")
   func testGetBalancesRoutesToProvider() async throws {
     let (manager, stub) = try await TestManagers.stubProviderManager()
-    let native = Balance(
+    let native = RainBalance(
       token: .native,
       chainId: 1,
       rawAmount: BigUInt(1_500_000_000_000_000_000),
       decimals: 18,
       symbol: "ETH"
     )
-    let usdc = Balance(
+    let usdc = RainBalance(
       token: .contract(address: TestFixtures.usdcAddress),
       chainId: 1,
       rawAmount: BigUInt(100_000_000),
@@ -152,10 +153,10 @@ struct BalanceTests {
       NetworkConfig.testConfig(chainId: 137, rpcUrl: "https://polygon")
     ]
     let (manager, stub) = try await TestManagers.stubProviderManager(configs: configs)
-    let eth = Balance(token: .native, chainId: 1, rawAmount: BigUInt(1_000_000_000_000_000_000), decimals: 18, symbol: "ETH")
-    let ethUsdc = Balance(token: .contract(address: TestFixtures.usdcAddress), chainId: 1, rawAmount: BigUInt(100_000_000), decimals: 6, symbol: "USDC")
-    let avax = Balance(token: .native, chainId: 43114, rawAmount: BigUInt(2_000_000_000_000_000_000), decimals: 18, symbol: "AVAX")
-    let pol = Balance(token: .native, chainId: 137, rawAmount: BigUInt(100_000_000_000_000_000), decimals: 18, symbol: "POL")
+    let eth = RainBalance(token: .native, chainId: 1, rawAmount: BigUInt(1_000_000_000_000_000_000), decimals: 18, symbol: "ETH")
+    let ethUsdc = RainBalance(token: .contract(address: TestFixtures.usdcAddress), chainId: 1, rawAmount: BigUInt(100_000_000), decimals: 6, symbol: "USDC")
+    let avax = RainBalance(token: .native, chainId: 43114, rawAmount: BigUInt(2_000_000_000_000_000_000), decimals: 18, symbol: "AVAX")
+    let pol = RainBalance(token: .native, chainId: 137, rawAmount: BigUInt(100_000_000_000_000_000), decimals: 18, symbol: "POL")
     stub.balancesByChainId = [
       1: [eth, ethUsdc],
       43114: [avax],
@@ -178,7 +179,7 @@ struct BalanceTests {
       NetworkConfig.testConfig(chainId: 43114, rpcUrl: "https://broken-avax")
     ]
     let (manager, stub) = try await TestManagers.stubProviderManager(configs: configs)
-    let eth = Balance(token: .native, chainId: 1, rawAmount: BigUInt(1_000_000_000_000_000_000), decimals: 18, symbol: "ETH")
+    let eth = RainBalance(token: .native, chainId: 1, rawAmount: BigUInt(1_000_000_000_000_000_000), decimals: 18, symbol: "ETH")
     stub.balancesByChainId = [1: [eth]]
     stub.errorsByChainId = [
       43114: RainSDKError.networkError(underlying: NSError(domain: "x", code: 0))

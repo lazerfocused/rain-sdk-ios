@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1940E11B2F37B1A4003B6718 /* RainSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 1940E11A2F37B1A4003B6718 /* RainSDK */; };
+		AA01F00000000000000000B1 /* RainPortal in Frameworks */ = {isa = PBXBuildFile; productRef = AA01F00000000000000000B2 /* RainPortal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1940E11B2F37B1A4003B6718 /* RainSDK in Frameworks */,
+				AA01F00000000000000000B1 /* RainPortal in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,6 +86,7 @@
 			name = RainSDKDemo;
 			packageProductDependencies = (
 				1940E11A2F37B1A4003B6718 /* RainSDK */,
+				AA01F00000000000000000B2 /* RainPortal */,
 			);
 			productName = RainSDKDemo;
 			productReference = 191A07FE2F1A1EF90026656C /* RainSDKDemo.app */;
@@ -115,6 +118,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				1940E1192F37B1A4003B6718 /* XCLocalSwiftPackageReference "../../../rain-sdk-ios" */,
+				AA01F00000000000000000B3 /* XCLocalSwiftPackageReference "../../../rain-sdk-ios/Packages/RainPortal" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 191A07FF2F1A1EF90026656C /* Products */;
@@ -377,12 +381,21 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../../rain-sdk-ios";
 		};
+		AA01F00000000000000000B3 /* XCLocalSwiftPackageReference "../../../rain-sdk-ios/Packages/RainPortal" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../../rain-sdk-ios/Packages/RainPortal";
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		1940E11A2F37B1A4003B6718 /* RainSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RainSDK;
+		};
+		AA01F00000000000000000B2 /* RainPortal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA01F00000000000000000B3 /* XCLocalSwiftPackageReference "../../../rain-sdk-ios/Packages/RainPortal" */;
+			productName = RainPortal;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -2,7 +2,8 @@ import Testing
 import Foundation
 import CoreGraphics
 @testable import PortalSwift
-@testable import RainSDK
+@testable import RainPortal
+@_spi(RainAdapters) @testable import RainSDK
 
 /// Manager-contract tests for wallet info APIs: validation and QR-code generation
 /// (provider-independent). Provider-specific transaction-mapping tests live in `Adapters/`.

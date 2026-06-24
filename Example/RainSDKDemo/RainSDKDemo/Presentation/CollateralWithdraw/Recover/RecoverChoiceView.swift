@@ -1,5 +1,5 @@
 import SwiftUI
-import PortalSwift
+import RainPortal
 
 /// Alert-style popup: choose iCloud or password to recover wallet. Shown for Portal on Transfer and Collateral Withdraw entry.
 struct RecoverChoiceView: View {

@@ -20,25 +20,41 @@ iOS SDK with first-class [Portal](https://portalhq.io) and [Turnkey](https://www
 - **Transaction history** — get transactions for the current wallet with optional pagination and sort order (`WalletTransaction`, `WalletTransactionOrder`).
 - **Send tokens** — send native or ERC-20 tokens from the current wallet.
 
+## Modular packages
+
+The SDK follows a ports-and-adapters layout so a client links only the wallet providers it uses:
+
+| Module | Contains | Vendor pulled in |
+|--------|----------|------------------|
+| **RainSDK** (rain-core) | Rain domain (CST auth, collateral, tx orchestration, balances), the `RainWalletProvider` port, the provider registry, **and the Turnkey adapter** (Turnkey is the baseline) | Turnkey |
+| **RainPortal** | Portal wallet adapter (`PortalProvider`, `initializePortal`) | + PortalSwift |
+| **RainPrivy** | Privy wallet adapter (scaffold) | + Privy (later) |
+
+- A Turnkey / base app links **RainSDK** only.
+- A Portal app links **RainPortal** (which pulls RainSDK transitively, so Turnkey is also present).
+- Adapters self-register at runtime via `RainSDKManager.register(_:)`; resolve by id with
+  `manager.provider(.portal)` or by capability with `manager.providers(matching: .typedDataSigning)`.
+
 ## Installation
 
 ### Swift Package Manager
 
-Add the package to your project (Xcode: **File → Add Package Dependencies**):
+Add the package(s) you need (Xcode: **File → Add Package Dependencies**):
 
 ```
-https://github.com/SignifyHQ/rain-sdk-ios
+https://github.com/SignifyHQ/rain-sdk-ios          # RainSDK (core + Turnkey)
+https://github.com/SignifyHQ/rain-portal-ios        # RainPortal (Portal)
 ```
 
-Or in `Package.swift`:
+During development the provider packages live under `Packages/` and reference rain-core by local
+path; published they become their own versioned repos. Then add the **RainSDK** product (and
+**RainPortal** if you use Portal) to your target.
 
-```swift
-dependencies: [
-    .package(url: "https://github.com/SignifyHQ/rain-sdk-ios", from: "1.0.0")
-]
-```
-
-Then add the **RainSDK** product to your target.
+> **Migrating from the monolithic 1.x?** Portal moved out of the core module. Add the
+> **RainPortal** package and `import RainPortal`; `initializePortal(...)` now comes from RainPortal.
+> The call site is otherwise unchanged. The old `manager.portal` accessor is gone — read the Portal
+> instance from the provider instead: `try (manager.provider(.portal) as? PortalProvider)?.portal`.
+> Turnkey and wallet-agnostic integrations need no changes.
 
 ## Requirements
 
@@ -54,6 +70,7 @@ Use this when you want the SDK to use Portal for signing and sending transaction
 
 ```swift
 import RainSDK
+import RainPortal   // Portal lives in its own package
 
 let manager = RainSDKManager()
 
@@ -62,13 +79,13 @@ let networkConfigs = [
     NetworkConfig(chainId: 137, rpcUrl: "https://polygon-rpc.com")
 ]
 
-try await manager.initializePortal(
+try await manager.initializePortal(   // from RainPortal
     portalSessionToken: "<your-portal-session-token>",
     networkConfigs: networkConfigs
 )
 
 // Access the Portal instance when needed (e.g. for UI)
-let portal = try manager.portal
+let portal = try (manager.provider(.portal) as? PortalProvider)?.portal
 ```
 
 ### 2. Initialize with Turnkey (full wallet flow)
