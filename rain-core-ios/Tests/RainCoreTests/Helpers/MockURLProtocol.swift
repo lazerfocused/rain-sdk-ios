@@ -30,6 +30,9 @@ final class MockURLProtocol: URLProtocol {
   nonisolated(unsafe) private static var errors: [String: Error] = [:]
   /// Recorded JSON-RPC method names in call order.
   nonisolated(unsafe) private(set) static var recordedMethods: [String] = []
+  /// Recorded JSON-RPC `params` per call, parallel to ``recordedMethods`` — for asserting on
+  /// arguments the method name alone doesn't capture, such as an `eth_call` block tag.
+  nonisolated(unsafe) private(set) static var recordedParams: [[Any]] = []
   /// Process-wide semaphore so suites that share the global `URLProtocol` registration
   /// don't trample each other's stubs when Swift Testing runs suites in parallel.
   /// Unlike `NSLock`, `DispatchSemaphore` isn't thread-affine — `wait()` and `signal()`
@@ -49,6 +52,7 @@ final class MockURLProtocol: URLProtocol {
     paramStubs.removeAll()
     errors.removeAll()
     recordedMethods.removeAll()
+    recordedParams.removeAll()
     interceptedHosts = defaultInterceptedHosts
     serialSemaphore.signal()
   }
@@ -101,6 +105,7 @@ final class MockURLProtocol: URLProtocol {
     let method = parseRPCMethod(from: request)
     if let method {
       MockURLProtocol.recordedMethods.append(method)
+      MockURLProtocol.recordedParams.append(parseRPCParams(from: request))
     }
 
     if let method, let error = MockURLProtocol.errors[method] {
