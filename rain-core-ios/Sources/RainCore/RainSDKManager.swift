@@ -207,6 +207,26 @@ final class RainSdkManager: RainClient, @unchecked Sendable {
     }
   }
 
+  func estimateWithdrawalFee(
+    chainId: Int,
+    prepared: RainPreparedWithdrawal
+  ) async throws -> Decimal {
+    do {
+      guard let parameters = prepared.evmParameters else {
+        throw RainSDKError.internalLogicError(
+          details: "Withdrawal fee estimation is not supported on Solana"
+        )
+      }
+      return try await estimateTransactionFee(
+        chainId: chainId,
+        address: parameters.from,
+        params: walletParams(parameters)
+      )
+    } catch {
+      throw mapWithdrawalError(error)
+    }
+  }
+
   // MARK: - Wallet information
 
   func getWalletAddress() async throws -> String {
@@ -326,11 +346,17 @@ final class RainSdkManager: RainClient, @unchecked Sendable {
         return RainTokenTransferResult(transactionHash: signature)
       }
 
+      // A typo'd recipient would otherwise broadcast as-is and the funds are gone; validate and
+      // checksum up front, as the withdrawal path does.
+      guard let recipient = try? RainWithdrawAddresses.checksummed(to, label: "to") else {
+        throw RainSDKError.invalidRecipient(address: to, reason: "not a valid EVM address")
+      }
       let from = try await walletProvider.address()
-      let amountWei = try AmountHelpers.toBaseUnits(amount: amount, decimals: 18)
+      let decimals = await tokenStore.nativeCurrency(for: chainId).decimals
+      let amountWei = try AmountHelpers.toBaseUnits(amount: amount, decimals: decimals)
       let params = WalletTransactionParams(
         from: from,
-        to: to,
+        to: recipient,
         value: "0x" + String(amountWei, radix: 16),
         data: .empty
       )
@@ -369,6 +395,11 @@ final class RainSdkManager: RainClient, @unchecked Sendable {
         return RainTokenTransferResult(transactionHash: signature)
       }
 
+      // Validated here for a precise error — the ABI encoder would reject a malformed address
+      // anyway, but only as an opaque "Failed to encode ERC-20".
+      guard let recipient = try? RainWithdrawAddresses.checksummed(to, label: "to") else {
+        throw RainSDKError.invalidRecipient(address: to, reason: "not a valid EVM address")
+      }
       let from = try await walletProvider.address()
       let resolvedDecimals = await resolveDecimals(
         chainId: chainId, contractAddress: contractAddress, decimals: decimals
@@ -378,7 +409,7 @@ final class RainSdkManager: RainClient, @unchecked Sendable {
         chainId: chainId,
         contractAddress: contractAddress,
         walletAddress: from,
-        toAddress: to,
+        toAddress: recipient,
         amount: amountBaseUnits
       )
 
