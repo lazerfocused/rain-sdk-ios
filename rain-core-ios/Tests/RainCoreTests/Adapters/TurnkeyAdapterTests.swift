@@ -117,12 +117,26 @@ struct TurnkeyAdapterTests {
     mockTurnkey.session = nil
     mockTurnkey.wallets = []
 
-    await #expect(throws: RainSDKError.walletUnavailable) {
+    // The cache is evicted and, with no session left, the re-resolve surfaces the typed
+    // re-auth signal rather than a generic wallet-unavailable.
+    await #expect(throws: RainSDKError.tokenExpired) {
       _ = try await manager.getWalletAddress()
     }
   }
 
   // MARK: - Balances
+
+  @Test("getAllBalances surfaces a dead session instead of returning an empty list")
+  func getAllBalancesSurfacesDeadSession() async throws {
+    let mockTurnkey = MockTurnkey(session: nil)
+    let (manager, _, _) = TestManagers.turnkeyManager(turnkey: mockTurnkey)
+
+    // A dead wallet session affects every chain identically; an empty list here would read
+    // as zero balances rather than as "re-authenticate".
+    await #expect(throws: RainSDKError.tokenExpired) {
+      _ = try await manager.getAllBalances()
+    }
+  }
 
   @Test("getBalance(.native) with Turnkey parses 1 ETH from a single ether balance")
   func testGetNativeBalanceTurnkey() async throws {
@@ -178,7 +192,7 @@ struct TurnkeyAdapterTests {
 
   @Test("getBalance(.contract) with Turnkey parses eth_call result via the chain reader")
   func testGetERC20BalanceTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stub(method: "eth_call", result: "0x0F4240") // 1_000_000 (USDC 6dp)
 
@@ -196,7 +210,7 @@ struct TurnkeyAdapterTests {
 
   @Test("getBalance(.contract) with Turnkey maps RPC network failures to networkError")
   func testGetERC20BalanceTurnkeyRpcNetworkError() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stubError(
       method: "eth_call",
@@ -228,7 +242,8 @@ struct TurnkeyAdapterTests {
       turnkey: mockTurnkey,
       networkConfigs: configs,
       walletAddress: walletAddress,
-      chainReader: mockReader
+      chainReader: mockReader,
+      history: ThrowingTurnkeyHistory()
     )
     return (adapter, mockTurnkey, mockReader)
   }
@@ -411,7 +426,7 @@ struct TurnkeyAdapterTests {
 
   @Test("sendNative with Turnkey returns mock tx hash")
   func testSendNativeTokenTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -468,7 +483,7 @@ struct TurnkeyAdapterTests {
 
   @Test("a status-poll timeout surfaces transactionPending with the status id, not a failure")
   func testSendTransactionPollTimeoutThrowsTransactionPending() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -508,7 +523,7 @@ struct TurnkeyAdapterTests {
 
   @Test("sendToken with Turnkey returns mock tx hash and routes to contract address")
   func testSendERC20TokenTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -535,7 +550,7 @@ struct TurnkeyAdapterTests {
 
   @Test("approveTokenAllowance with Turnkey broadcasts arbitrary ERC-20 approve calldata")
   func testApproveTokenAllowanceTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -572,7 +587,7 @@ struct TurnkeyAdapterTests {
 
   @Test("sendNative with Turnkey throws when ethSendTransaction fails")
   func testSendNativeTokenTurnkeyEthSendError() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -599,7 +614,7 @@ struct TurnkeyAdapterTests {
 
   @Test("pollForTransactionHash throws when status reports failure")
   func testPollForTransactionHashFailureStatus() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -620,7 +635,7 @@ struct TurnkeyAdapterTests {
 
   @Test("a zero gas estimate on a plain transfer falls back to 21000 rather than submitting gasLimit 0")
   func testZeroGasEstimateFallsBackToDefault() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stub(method: "eth_getTransactionCount", result: "0x1")
     MockURLProtocol.stub(method: "eth_estimateGas", result: "0x0")
@@ -645,7 +660,7 @@ struct TurnkeyAdapterTests {
 
   @Test("a zero gas estimate on a contract call fails loudly instead of sending 21000")
   func testZeroGasEstimateWithCalldataThrows() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stub(method: "eth_getTransactionCount", result: "0x1")
     MockURLProtocol.stub(method: "eth_estimateGas", result: "0x0")
@@ -671,7 +686,7 @@ struct TurnkeyAdapterTests {
 
   @Test("pollForTransactionHash keeps polling until status returns a hash")
   func testPollForTransactionHashRetriesUntilSuccess() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -699,7 +714,7 @@ struct TurnkeyAdapterTests {
 
   @Test("withdrawCollateral with Turnkey returns hash and signs typed data once")
   func testWithdrawCollateralTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     stubSendTransactionRPCs()
 
@@ -730,7 +745,7 @@ struct TurnkeyAdapterTests {
 
   @Test("estimateWithdrawalFee with Turnkey computes gas × price")
   func testEstimateWithdrawalFeeTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stub(method: "eth_estimateGas", result: "0x5208") // 21000
     MockURLProtocol.stub(method: "eth_gasPrice", result: "0x4a817c800") // 20 gwei = 20_000_000_000
@@ -752,7 +767,7 @@ struct TurnkeyAdapterTests {
 
   @Test("estimateWithdrawalFee with Turnkey maps RPC network failures to networkError")
   func testEstimateWithdrawalFeeTurnkeyRpcNetworkError() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stubError(
       method: "eth_estimateGas",
@@ -775,7 +790,7 @@ struct TurnkeyAdapterTests {
 
   @Test("estimateWithdrawalFee(prepared:) estimates on the prepared calldata without another signature")
   func testEstimateWithdrawalFeePreparedSignsNothing() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stub(method: "eth_estimateGas", result: "0x5208") // 21000
     MockURLProtocol.stub(method: "eth_gasPrice", result: "0x4a817c800") // 20 gwei
@@ -815,7 +830,7 @@ struct TurnkeyAdapterTests {
 
   @Test("estimateGas with Turnkey computes gas × price for arbitrary calldata")
   func testEstimateGasTurnkey() async throws {
-    MockURLProtocol.install()
+    await MockURLProtocol.install()
     defer { MockURLProtocol.reset() }
     MockURLProtocol.stub(method: "eth_estimateGas", result: "0x5208") // 21000
     MockURLProtocol.stub(method: "eth_gasPrice", result: "0x4a817c800") // 20 gwei

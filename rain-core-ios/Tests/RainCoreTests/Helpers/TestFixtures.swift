@@ -78,7 +78,10 @@ enum TestManagers {
     walletAddress: String? = nil,
     registeredTokens: [TokenInfo] = [],
     authPullChainIds: Set<Int> = RainAuthPullChains.sandbox,
-    authPullTokenAddresses: [Int: String]? = nil
+    authPullTokenAddresses: [Int: String]? = nil,
+    // Indexed history fails like a feature-gated org by default, so tests that don't stub it
+    // cover the activity-log path deterministically.
+    history: TurnkeyHistoryProviding = ThrowingTurnkeyHistory()
   ) -> (RainSdkManager, MockTurnkey, MockTransactionBuilderService) {
     let resolvedTurnkey = turnkey ?? MockTurnkey()
     let resolvedBuilder = builder ?? MockTransactionBuilderService(networkConfigs: configs)
@@ -90,7 +93,8 @@ enum TestManagers {
       turnkey: resolvedTurnkey,
       networkConfigs: configs,
       walletAddress: walletAddress,
-      tokenStore: tokenStore
+      tokenStore: tokenStore,
+      history: history
     )
     let manager = RainSdkManager(
       walletProvider: adapter,

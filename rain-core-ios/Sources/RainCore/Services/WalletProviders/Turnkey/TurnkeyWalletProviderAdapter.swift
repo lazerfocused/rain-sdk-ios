@@ -31,12 +31,15 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
   }
 
   private let turnkey: TurnkeyContextProtocol
+  /// Guards every Turnkey call: expiry check, proactive refresh, refresh-on-401, backoff.
+  private let sessions: TurnkeySessionCoordinator
   private let networkConfigsByChainId: [Int: NetworkConfig]
   private let walletAddressOverride: String?
   private let jsonRpcClient: JsonRpcClient
   private let chainReader: ChainReader
   private let solanaSupport: RainSolanaSupport
   private let tokenStore: TokenMetadataStore
+  private let history: any TurnkeyHistoryProviding
 
   private var solanaChainReader: ChainReader { solanaSupport.chainReader }
   private var solanaRpcClient: SolanaRpcClient { solanaSupport.solanaRpcClient }
@@ -79,9 +82,12 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     jsonRpcClient: JsonRpcClient = JsonRpcClient(),
     chainReader: ChainReader? = nil,
     solanaSupport: RainSolanaSupport? = nil,
-    tokenStore: TokenMetadataStore? = nil
+    tokenStore: TokenMetadataStore? = nil,
+    history: (any TurnkeyHistoryProviding)? = nil,
+    sessionCoordinator: TurnkeySessionCoordinator? = nil
   ) {
     self.turnkey = turnkey
+    self.sessions = sessionCoordinator ?? TurnkeySessionCoordinator(turnkey: turnkey)
     self.networkConfigsByChainId = Dictionary(uniqueKeysWithValues: networkConfigs.map { ($0.chainId, $0) })
     self.walletAddressOverride = walletAddress
     self.jsonRpcClient = jsonRpcClient
@@ -92,6 +98,7 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     self.chainReader = resolvedReader
     self.solanaSupport = solanaSupport ?? RainSolanaSupport(networkConfigs: networkConfigs)
     self.tokenStore = tokenStore ?? TokenMetadataStore(chainReader: resolvedReader)
+    self.history = history ?? TurnkeyHistoryClient()
   }
 
   /// The reader for `chainId`'s chain family — the Solana reader for Solana clusters, the
@@ -137,7 +144,9 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
       }
       let task = Task { [self] in
         if let walletAddress = resolve(self) { return walletAddress }
-        try await turnkey.refreshWallets()
+        // Session-guarded: an expired session surfaces as tokenExpired here rather than as
+        // the vendor's raw refresh-wallets failure.
+        try await sessions.executeRead { _, _ in try await self.turnkey.refreshWallets() }
         if let walletAddress = resolve(self) { return walletAddress }
         throw RainSDKError.walletUnavailable
       }
@@ -190,19 +199,16 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     params: WalletTransactionParams
   ) async throws -> String {
     try requireEVM(chainId: chainId, operation: "sendTransaction")
-    let (session, client) = try resolveSessionAndClient()
-    let sendInput = try await buildTurnkeySendTransactionBody(
-      session: session,
-      chainId: chainId,
-      params: params
-    )
-    let response = try await client.ethSendTransaction(sendInput)
-
-    return try await pollForTransactionHash(
-      client: client,
-      organizationId: session.organizationId,
-      sendTransactionStatusId: response.sendTransactionStatusId
-    )
+    // The body is rebuilt on a refresh-and-retry so the nonce and gas quotes stay fresh.
+    let statusId = try await sessions.executeWrite { session, client in
+      let sendInput = try await self.buildTurnkeySendTransactionBody(
+        session: session,
+        chainId: chainId,
+        params: params
+      )
+      return try await client.ethSendTransaction(sendInput).sendTransactionStatusId
+    }
+    return try await pollForTransactionHash(sendTransactionStatusId: statusId)
   }
 
   public func getBalance(
@@ -269,6 +275,12 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
           mint: mint
         )
       }
+    } catch let cancellation as CancellationError {
+      throw cancellation
+    } catch let error as RainSDKError where error == .tokenExpired {
+      // A dead session must surface, not be masked by the node fallback — the coordinator
+      // already tried a refresh before this error was thrown.
+      throw error
     } catch {
       return try await chainReaderFor(chainId: chainId).getBalance(
         chainId: chainId,
@@ -353,7 +365,17 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     let caip2 = caip2For(chainId: chainId)
     let balances: [v1AssetBalance]
     if SolanaChains.isSolana(chainId) {
-      let turnkeyBalances = try? await fetchBalances(chainId: chainId, walletAddress: walletAddress)
+      let turnkeyBalances: [v1AssetBalance]?
+      do {
+        turnkeyBalances = try await fetchBalances(chainId: chainId, walletAddress: walletAddress)
+      } catch let cancellation as CancellationError {
+        throw cancellation
+      } catch let error as RainSDKError where error == .tokenExpired {
+        // A dead session must surface, not be masked by the node fallback.
+        throw error
+      } catch {
+        turnkeyBalances = nil
+      }
       // Turnkey does not index every cluster: on devnet / testnet it errors, or answers with SOL
       // and no SPL assets at all. Discovering the wallet's token accounts from the node covers
       // both cases; on mainnet, where Turnkey does list SPL assets, its richer metadata wins.
@@ -435,24 +457,324 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     )
   }
 
+  /// Transaction history. Turnkey's indexed history queries are the primary source, since they
+  /// cover the wallet's full on-chain history (receives and externally-submitted transactions
+  /// included). When the indexed query is unavailable, most commonly because the history feature
+  /// is not enabled for the Turnkey organization, the adapter falls back to the activity log,
+  /// which lists only transactions sent through Turnkey.
   public func getTransactions(
     chainId: Int,
     limit: Int?,
     offset: Int?,
     order: RainTransactionOrder?
   ) async throws -> [RainTransaction] {
-    if SolanaChains.isSolana(chainId) {
-      return try await getSolanaTransactions(chainId: chainId, limit: limit, offset: offset, order: order)
+    do {
+      if SolanaChains.isSolana(chainId) {
+        return try await indexedSolanaTransactions(chainId: chainId, limit: limit, offset: offset, order: order)
+      }
+      return try await indexedEvmTransactions(chainId: chainId, limit: limit, offset: offset, order: order)
+    } catch let cancellation as CancellationError {
+      throw cancellation
+    } catch let error as RainSDKError where error == .tokenExpired {
+      // The activity path needs the same session, so falling back would only fail again.
+      throw error
+    } catch TurnkeySwiftError.invalidSession {
+      throw TurnkeySwiftError.invalidSession
+    } catch {
+      // URLSession surfaces task cancellation as URLError(.cancelled), not CancellationError;
+      // a cancelled call must not run the fallback.
+      if Task.isCancelled { throw error }
+      RainLogger.warning("Rain SDK: Turnkey indexed history unavailable, falling back to activities: \(error)")
     }
-    let (session, client) = try resolveSessionAndClient()
-    let requestedLimit = min(max((limit ?? 10) + (offset ?? 0), 1), 100)
-    let activitiesResponse = try await client.getActivities(
-      TGetActivitiesBody(
+    if SolanaChains.isSolana(chainId) {
+      return try await solanaTransactionsFromActivities(chainId: chainId, limit: limit, offset: offset, order: order)
+    }
+    return try await evmTransactionsFromActivities(chainId: chainId, limit: limit, offset: offset, order: order)
+  }
+
+  private func indexedEvmTransactions(
+    chainId: Int,
+    limit: Int?,
+    offset: Int?,
+    order: RainTransactionOrder?
+  ) async throws -> [RainTransaction] {
+    let walletAddress = try await getAddress(chainId: chainId)
+    let response = try await sessions.executeRead { session, _ in
+      try await self.history.listEthTransactionHistory(
         organizationId: session.organizationId,
-        filterByType: [.activity_type_eth_send_transaction],
-        paginationOptions: v1Pagination(limit: String(requestedLimit))
+        sessionPublicKey: session.publicKey,
+        address: walletAddress,
+        caip2: self.caip2For(chainId: chainId),
+        limit: self.requestedHistoryLimit(limit: limit, offset: offset)
+      )
+    }
+    let rows = (response.transactions ?? []).map { tx in
+      (
+        Self.rfc3339EpochSeconds(tx.block?.timestamp),
+        indexedTransaction(
+          chainId: chainId,
+          walletAddress: walletAddress,
+          hash: tx.transactionHash,
+          block: tx.block,
+          status: tx.status,
+          txFrom: tx.from,
+          txTo: tx.to,
+          transfer: tx.transfers?.first,
+          sponsored: tx.turnkey?.sponsored
+        )
+      )
+    }
+    return sortAndSlice(rows: rows, limit: limit, offset: offset, order: order)
+  }
+
+  private func indexedSolanaTransactions(
+    chainId: Int,
+    limit: Int?,
+    offset: Int?,
+    order: RainTransactionOrder?
+  ) async throws -> [RainTransaction] {
+    let walletAddress = try await getAddress(chainId: chainId)
+    let response = try await sessions.executeRead { session, _ in
+      try await self.history.listSolTransactionHistory(
+        organizationId: session.organizationId,
+        sessionPublicKey: session.publicKey,
+        address: walletAddress,
+        caip2: self.caip2For(chainId: chainId),
+        limit: self.requestedHistoryLimit(limit: limit, offset: offset)
+      )
+    }
+    let rows = (response.transactions ?? []).map { tx in
+      (
+        Self.rfc3339EpochSeconds(tx.block?.timestamp),
+        indexedTransaction(
+          chainId: chainId,
+          walletAddress: walletAddress,
+          hash: tx.signature,
+          block: tx.block,
+          status: tx.status,
+          txFrom: tx.feePayer,
+          txTo: nil,
+          transfer: tx.transfers?.first,
+          sponsored: tx.turnkey?.sponsored
+        )
+      )
+    }
+    return sortAndSlice(rows: rows, limit: limit, offset: offset, order: order)
+  }
+
+  /// Maps one indexed history row onto the Rain model. The row's first transfer supplies the
+  /// counterparty, asset and amount; any further transfers on the same transaction (a swap's
+  /// received leg, a batch's other recipients) are not rendered as rows. A row without transfers
+  /// (e.g. a plain contract call) keeps the transaction-level addresses and carries no amount.
+  private func indexedTransaction(
+    chainId: Int,
+    walletAddress: String,
+    hash: String,
+    block: TurnkeyHistoryBlock?,
+    status: String?,
+    txFrom: String?,
+    txTo: String?,
+    transfer: TurnkeyHistoryTransfer?,
+    sponsored: Bool?
+  ) -> RainTransaction {
+    let incoming = transfer?.direction?.uppercased() == "IN"
+    // Turnkey sends "" (not null) when the counterparty is unknown, Solana in particular.
+    let counterparty = transfer?.counterparty.flatMap {
+      $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0
+    }
+    let asset = transfer?.asset?.caip19.flatMap {
+      Self.caip19Asset(from: $0, caip2: caip2For(chainId: chainId))
+    }
+    let transferTokenAddress = asset.flatMap {
+      $0.namespace == Self.nativeAssetNamespace ? nil : $0.reference
+    }
+    // Indexer-supplied; a value outside any real token's range must not scale the amount.
+    let decimals = transfer?.asset?.decimals.flatMap {
+      (0...Self.maxTokenDecimals).contains($0) ? $0 : nil
+    }
+    var displayValues: [String: String] = [:]
+    if let crypto = transfer?.display?.crypto { displayValues["crypto"] = crypto }
+    if let usd = transfer?.display?.usd { displayValues["usd"] = usd }
+
+    let from: String
+    let to: String?
+    if transfer != nil {
+      if incoming {
+        from = counterparty ?? txFrom ?? walletAddress
+        to = walletAddress
+      } else {
+        // OUT is relative to the queried address: the wallet is the sender even when the
+        // transaction-level `from` is a sponsor, relayer or bundler.
+        from = walletAddress
+        to = counterparty ?? txTo
+      }
+    } else {
+      from = txFrom ?? walletAddress
+      to = txTo
+    }
+
+    var value: Decimal?
+    if let amount = transfer?.amount, let decimals {
+      value = Self.exactDecimal(amount: amount, decimals: decimals)
+    }
+
+    let type: String?
+    if transfer == nil {
+      type = nil
+    } else {
+      type = incoming ? "transferReceived" : "transferSent"
+    }
+
+    return RainTransaction(
+      hash: hash,
+      uniqueId: hash,
+      blockNumber: block?.number,
+      timestamp: Self.normalizedTimestamp(block?.timestamp),
+      from: from,
+      to: to,
+      value: value,
+      asset: transfer?.asset?.symbol,
+      tokenAddress: transferTokenAddress,
+      rawValue: transfer?.amount,
+      decimals: decimals,
+      category: Self.indexedCategory(of: asset),
+      chainId: chainId,
+      metadata: RainTransaction.Metadata(
+        caip2: caip2For(chainId: chainId),
+        status: Self.indexerStatus(status),
+        sponsored: sponsored,
+        type: type,
+        displayValues: displayValues.isEmpty ? nil : displayValues
       )
     )
+  }
+
+  private struct Caip19Asset {
+    let namespace: String
+    let reference: String
+  }
+
+  /// CAIP-19 asset namespace of a chain's native coin (ETH, SOL).
+  private static let nativeAssetNamespace = "slip44"
+
+  /// Widest plausible token scale (uint256 spans 78 digits); beyond this is hostile data.
+  private static let maxTokenDecimals = 77
+
+  /// Splits a CAIP-19 under `caip2` into asset namespace and reference; `nil` when foreign or
+  /// malformed. Every access is guarded: this parses indexer-supplied strings, which must never
+  /// be able to crash the host.
+  private static func caip19Asset(from caip19: String, caip2: String) -> Caip19Asset? {
+    let prefix = "\(caip2)/"
+    guard caip19.hasPrefix(prefix) else { return nil }
+    let rest = caip19.dropFirst(prefix.count)
+    let parts = rest.split(separator: ":", maxSplits: 1)
+    guard parts.count == 2,
+          let referencePart = parts[1].split(separator: "/", maxSplits: 1).first
+    else { return nil }
+    let namespace = String(parts[0])
+    let reference = String(referencePart)
+    guard !namespace.isEmpty, !reference.isEmpty else { return nil }
+    return Caip19Asset(namespace: namespace, reference: reference)
+  }
+
+  private static func indexedCategory(of asset: Caip19Asset?) -> RainTransactionCategory {
+    switch asset?.namespace {
+    case nil, nativeAssetNamespace: return .external
+    case "erc20": return .erc20
+    case "erc721": return .erc721
+    case "erc1155": return .erc1155
+    default: return .token
+    }
+  }
+
+  /// `EXECUTION_REVERTED` becomes `executionReverted`, matching the Privy rows' vocabulary.
+  private static func indexerStatus(_ status: String?) -> String? {
+    guard let status else { return nil }
+    let parts = status.lowercased().split(separator: "_").filter { !$0.isEmpty }
+    guard let first = parts.first else { return nil }
+    return String(first) + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }
+      .joined()
+  }
+
+  /// Exact atomic-units scaling; `nil` for a non-numeric amount or indexer-supplied decimals
+  /// outside a sane token range, never a fabricated zero and never an overflow trap.
+  private static func exactDecimal(amount: String, decimals: Int) -> Decimal? {
+    guard (0...maxTokenDecimals).contains(decimals) else { return nil }
+    let value = NSDecimalNumber(string: amount)
+    guard value != NSDecimalNumber.notANumber else { return nil }
+    let divisor = NSDecimalNumber(mantissa: 1, exponent: Int16(decimals), isNegative: false)
+    return value.dividing(by: divisor) as Decimal
+  }
+
+  /// Same fetch window as the activity path: enough rows to honor `offset`, capped by the API.
+  private func requestedHistoryLimit(limit: Int?, offset: Int?) -> Int {
+    min(max((limit ?? 10) + (offset ?? 0), 1), 100)
+  }
+
+  private func sortAndSlice(
+    rows: [(TimeInterval, RainTransaction)],
+    limit: Int?,
+    offset: Int?,
+    order: RainTransactionOrder?
+  ) -> [RainTransaction] {
+    // Swift's sort is not stability-guaranteed, so rows sharing a block timestamp keep the
+    // API's newest-first order via the index tiebreak.
+    let sorted = rows.enumerated().sorted { lhs, rhs in
+      switch order ?? .DESC {
+      case .ASC:
+        if lhs.element.0 != rhs.element.0 { return lhs.element.0 < rhs.element.0 }
+        return lhs.offset > rhs.offset
+      case .DESC:
+        if lhs.element.0 != rhs.element.0 { return lhs.element.0 > rhs.element.0 }
+        return lhs.offset < rhs.offset
+      }
+    }
+    return Array(
+      sorted
+        .dropFirst(offset ?? 0)
+        .prefix(limit ?? sorted.count)
+    ).map { $0.element.1 }
+  }
+
+  /// Sort key for an indexed row with no mined block yet: newest, not 1970.
+  private static let pendingRowEpoch = TimeInterval.greatestFiniteMagnitude
+
+  /// Epoch seconds for an RFC 3339 timestamp. A row without one (not mined yet, or a form the
+  /// parser does not know) sorts as newest rather than 1970, so a pending send stays on the
+  /// first page instead of being sliced off the end.
+  private static func rfc3339EpochSeconds(_ timestamp: String?) -> TimeInterval {
+    guard let timestamp, !timestamp.isEmpty else { return pendingRowEpoch }
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: timestamp) { return date.timeIntervalSince1970 }
+    let plain = ISO8601DateFormatter()
+    return plain.date(from: timestamp)?.timeIntervalSince1970 ?? pendingRowEpoch
+  }
+
+  /// The indexer's timestamp reduced to the second-precision Zulu the activity path emits.
+  private static func normalizedTimestamp(_ timestamp: String?) -> String? {
+    guard let timestamp, !timestamp.isEmpty else { return nil }
+    let epoch = rfc3339EpochSeconds(timestamp)
+    return epoch == pendingRowEpoch ? timestamp : iso8601String(from: epoch)
+  }
+
+  /// Activity-log history, used when the indexed query is unavailable. Sends only, no receives.
+  private func evmTransactionsFromActivities(
+    chainId: Int,
+    limit: Int?,
+    offset: Int?,
+    order: RainTransactionOrder?
+  ) async throws -> [RainTransaction] {
+    let requestedLimit = min(max((limit ?? 10) + (offset ?? 0), 1), 100)
+    let activitiesResponse = try await sessions.executeRead { session, client in
+      try await client.getActivities(
+        TGetActivitiesBody(
+          organizationId: session.organizationId,
+          filterByType: [.activity_type_eth_send_transaction],
+          paginationOptions: v1Pagination(limit: String(requestedLimit))
+        )
+      )
+    }
 
     let matchingDrafts = activitiesResponse.activities.compactMap { activity in
       draftTransaction(from: activity, expectedChainId: chainId)
@@ -478,8 +800,6 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
 
     for draft in slicedDrafts {
       let txHash = try? await resolveTransactionHash(
-        client: client,
-        organizationId: session.organizationId,
         sendTransactionStatusId: draft.sendTransactionStatusId
       )
       // A contract call carries calldata; a plain transfer does not.
@@ -519,33 +839,33 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     let token: SolanaTransactionDecoder.TokenTransfer?
   }
 
-  /// Solana transaction history, sourced from Turnkey activities
-  /// (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`) for consistency with the EVM path — so it shows only
-  /// transactions this wallet sent through Turnkey (no receives). Turnkey's Solana activity carries
-  /// only the unsigned transaction (no recipient/amount) and no on-chain signature, so `to`/`value`
-  /// are decoded from that blob and the row's hash is the Turnkey status id (not an
-  /// explorer-resolvable signature).
+  /// Solana activity-log history (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), used when the indexed
+  /// query is unavailable. Shows only transactions this wallet sent through Turnkey (no
+  /// receives). Turnkey's Solana activity carries only the unsigned transaction (no
+  /// recipient/amount) and no on-chain signature, so `to`/`value` are decoded from that blob and
+  /// the row's hash is the Turnkey status id (not an explorer-resolvable signature).
   ///
   /// Both shapes Rain sends are decoded: a System transfer becomes a native SOL row, and an SPL
   /// `TransferChecked` a token row carrying the mint in `rawContract`. SPL transfers move between
   /// *token accounts*, so the recipient wallet is recovered from the transaction's
   /// account-creation instruction when it has one, and read from the node otherwise.
-  private func getSolanaTransactions(
+  private func solanaTransactionsFromActivities(
     chainId: Int,
     limit: Int?,
     offset: Int?,
     order: RainTransactionOrder?
   ) async throws -> [RainTransaction] {
-    let (session, client) = try resolveSessionAndClient()
     let caip2 = caip2For(chainId: chainId)
     let requestedLimit = min(max((limit ?? 10) + (offset ?? 0), 1), 100)
-    let activitiesResponse = try await client.getActivities(
-      TGetActivitiesBody(
-        organizationId: session.organizationId,
-        filterByType: [.activity_type_sol_send_transaction],
-        paginationOptions: v1Pagination(limit: String(requestedLimit))
+    let activitiesResponse = try await sessions.executeRead { session, client in
+      try await client.getActivities(
+        TGetActivitiesBody(
+          organizationId: session.organizationId,
+          filterByType: [.activity_type_sol_send_transaction],
+          paginationOptions: v1Pagination(limit: String(requestedLimit))
+        )
       )
-    )
+    }
 
     let drafts: [SolanaActivityDraft] = activitiesResponse.activities.compactMap { activity in
       guard let intent = activity.intent.solSendTransactionIntent,
@@ -694,29 +1014,24 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     from: String,
     unsigned: UnsignedSolanaTransfer
   ) async throws -> String {
-    let (session, client) = try resolveSessionAndClient()
-
     // Baseline for the signature recovery below: the wallet's newest signature before this send.
     let priorSignature = try? await solanaRpcClient.getLatestSignature(chainId: chainId, address: from)
 
-    let response = try await client.solSendTransaction(
-      TSolSendTransactionBody(
-        organizationId: session.organizationId,
-        caip2: caip2For(chainId: chainId),
-        recentBlockhash: unsigned.recentBlockhash,
-        signWith: from,
-        sponsor: false,
-        unsignedTransaction: unsigned.transactionHex
-      )
-    )
-    let statusId = response.sendTransactionStatusId
+    let statusId = try await sessions.executeWrite { session, client in
+      try await client.solSendTransaction(
+        TSolSendTransactionBody(
+          organizationId: session.organizationId,
+          caip2: self.caip2For(chainId: chainId),
+          recentBlockhash: unsigned.recentBlockhash,
+          signWith: from,
+          sponsor: false,
+          unsignedTransaction: unsigned.transactionHex
+        )
+      ).sendTransactionStatusId
+    }
 
     // The Turnkey SDK returns the Solana signature in the send-status response once Included.
-    if let signature = try await pollForSolanaCompletion(
-      client: client,
-      organizationId: session.organizationId,
-      sendTransactionStatusId: statusId
-    ) {
+    if let signature = try await pollForSolanaCompletion(sendTransactionStatusId: statusId) {
       return signature
     }
 
@@ -766,17 +1081,24 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
   /// (populated once the tx is Included), `nil` at a terminal status without it or on timeout
   /// (caller then recovers the signature from chain), and throws on explicit failure.
   private func pollForSolanaCompletion(
-    client: any TurnkeyClientProtocol,
-    organizationId: String,
     sendTransactionStatusId: String
   ) async throws -> String? {
     for attempt in 0..<AdapterConstants.defaultPollingAttempts {
-      let status = try await client.getSendTransactionStatus(
-        TGetSendTransactionStatusBody(
-          organizationId: organizationId,
-          sendTransactionStatusId: sendTransactionStatusId
-        )
-      )
+      // A session dying mid-poll stops the status reads, not the submitted transaction:
+      // returning nil lets the caller recover the signature from chain.
+      let status: TGetSendTransactionStatusResponse
+      do {
+        status = try await sessions.executeRead { session, client in
+          try await client.getSendTransactionStatus(
+            TGetSendTransactionStatusBody(
+              organizationId: session.organizationId,
+              sendTransactionStatusId: sendTransactionStatusId
+            )
+          )
+        }
+      } catch let error as RainSDKError where error == .tokenExpired {
+        return nil
+      }
 
       let normalized = status.txStatus.uppercased()
       if normalized.contains("FAILED") || normalized.contains("REJECTED")
@@ -818,12 +1140,14 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     typedData: String
   ) async throws -> String {
     try requireEVM(chainId: chainId, operation: "signTypedData")
-    let signature = try await turnkey.signRawPayload(
-      signWith: walletAddress,
-      payload: typedData,
-      encoding: .payload_encoding_eip712,
-      hashFunction: .hash_function_no_op
-    )
+    let signature = try await sessions.executeWrite { _, _ in
+      try await self.turnkey.signRawPayload(
+        signWith: walletAddress,
+        payload: typedData,
+        encoding: .payload_encoding_eip712,
+        hashFunction: .hash_function_no_op
+      )
+    }
 
     return Self.ethereumSignatureHex(from: signature)
   }
@@ -864,30 +1188,19 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
     )
   }
 
-  private func resolveSessionAndClient() throws -> (Session, any TurnkeyClientProtocol) {
-    guard let session = turnkey.session else {
-      throw TurnkeySwiftError.invalidSession
-    }
-
-    guard let client = turnkey.turnkeyClient else {
-      throw TurnkeySwiftError.invalidSession
-    }
-
-    return (session, client)
-  }
-
   private func fetchBalances(
     chainId: Int,
     walletAddress: String
   ) async throws -> [v1AssetBalance] {
-    let (session, client) = try resolveSessionAndClient()
-    let response = try await client.getWalletAddressBalances(
-      TGetWalletAddressBalancesBody(
-        organizationId: session.organizationId,
-        address: walletAddress,
-        caip2: caip2For(chainId: chainId)
+    let response = try await sessions.executeRead { session, client in
+      try await client.getWalletAddressBalances(
+        TGetWalletAddressBalancesBody(
+          organizationId: session.organizationId,
+          address: walletAddress,
+          caip2: self.caip2For(chainId: chainId)
+        )
       )
-    )
+    }
 
     return response.balances ?? []
   }
@@ -980,35 +1293,44 @@ internal final class TurnkeyWalletProviderAdapter: RainWalletProvider, RainTyped
   }
 
   private func resolveTransactionHash(
-    client: any TurnkeyClientProtocol,
-    organizationId: String,
     sendTransactionStatusId: String?
   ) async throws -> String? {
     guard let sendTransactionStatusId else {
       return nil
     }
 
-    let status = try await client.getSendTransactionStatus(
-      TGetSendTransactionStatusBody(
-        organizationId: organizationId,
-        sendTransactionStatusId: sendTransactionStatusId
+    let status = try await sessions.executeRead { session, client in
+      try await client.getSendTransactionStatus(
+        TGetSendTransactionStatusBody(
+          organizationId: session.organizationId,
+          sendTransactionStatusId: sendTransactionStatusId
+        )
       )
-    )
+    }
     return status.eth?.txHash
   }
 
   private func pollForTransactionHash(
-    client: any TurnkeyClientProtocol,
-    organizationId: String,
     sendTransactionStatusId: String
   ) async throws -> String {
     for attempt in 0..<Self.AdapterConstants.defaultPollingAttempts {
-      let status = try await client.getSendTransactionStatus(
-        TGetSendTransactionStatusBody(
-          organizationId: organizationId,
-          sendTransactionStatusId: sendTransactionStatusId
-        )
-      )
+      // Session-guarded per poll: a session expiring mid-poll refreshes instead of aborting a
+      // transaction that was already submitted. If the session dies for good, the status id
+      // must survive — losing it here would invite a duplicate send after re-auth. The expiry
+      // hook has already fired by then.
+      let status: TGetSendTransactionStatusResponse
+      do {
+        status = try await sessions.executeRead { session, client in
+          try await client.getSendTransactionStatus(
+            TGetSendTransactionStatusBody(
+              organizationId: session.organizationId,
+              sendTransactionStatusId: sendTransactionStatusId
+            )
+          )
+        }
+      } catch let error as RainSDKError where error == .tokenExpired {
+        throw RainSDKError.transactionPending(statusId: sendTransactionStatusId)
+      }
 
       if let txHash = status.eth?.txHash, !txHash.isEmpty {
         return txHash

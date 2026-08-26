@@ -18,8 +18,9 @@ enum PrivyErrorMapping {
   }
 
   /// Returns a classified `RainSDKError` for a Privy vendor error, or `nil` for anything this
-  /// adapter doesn't own (so core's built-in fallbacks still run).
-  private static func map(_ error: Error) -> RainSDKError? {
+  /// adapter doesn't own (so core's built-in fallbacks still run). Internal (not private) so
+  /// the session coordinator can classify auth failures without re-stating vendor shapes.
+  static func map(_ error: Error) -> RainSDKError? {
     guard let privyError = error as? PrivyError else { return nil }
     switch privyError.errorCode {
     case .authenticationFailure(let reason):
@@ -38,7 +39,7 @@ enum PrivyErrorMapping {
     error: PrivyError
   ) -> RainSDKError {
     switch reason {
-    case .notLoggedIn, .invalidJwt:
+    case .notLoggedIn, .invalidJwt, .sessionExpired:
       return .tokenExpired
     case .passkeyUserCancelled:
       return .userRejected
@@ -76,15 +77,8 @@ enum PrivyErrorMapping {
     }
   }
 
-  /// Keyword classification for Privy's free-text RPC error messages.
+  /// Classifies Privy's free-text RPC error messages by core's shared vendor-phrase standard.
   private static func classify(message: String, fallback: PrivyError) -> RainSDKError {
-    let lower = message.lowercased()
-    if lower.contains("reject") || lower.contains("denied") || lower.contains("cancel") {
-      return .userRejected
-    }
-    if lower.contains("insufficient") {
-      return .insufficientFunds(required: "unknown", available: "unknown")
-    }
-    return .providerError(underlying: fallback)
+    RainSDKError.fromVendorMessage(message) ?? .providerError(underlying: fallback)
   }
 }
